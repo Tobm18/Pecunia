@@ -26,7 +26,7 @@ npm run dev                  # http://localhost:3000
 ### Mise en place de Supabase
 
 1. Créer un projet sur [supabase.com](https://supabase.com), région UE.
-2. **SQL Editor** : exécuter `supabase/migrations/20260928000000_init.sql`. Ou, avec la CLI : `supabase link` puis `supabase db push`.
+2. **SQL Editor** : coller **tout** le fichier `supabase/migrations/20260928000000_init.sql`, sans rien sélectionner (sinon seule la sélection est exécutée), puis « Run ». Le script peut être relancé sans risque. Autre option, avec la CLI : `supabase link` puis `supabase db push`.
 3. **Authentication → URL Configuration** :
    - Site URL : `http://localhost:3000` (puis l'URL de production) ;
    - Redirect URLs : `http://localhost:3000/auth/callback` (et l'équivalent en production).

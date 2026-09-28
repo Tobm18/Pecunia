@@ -1,5 +1,9 @@
 -- Pecunia — schéma initial
 --
+-- Script IDEMPOTENT : il peut être relancé en entier sans erreur, même si une
+-- exécution précédente s'est arrêtée en cours de route (Supabase SQL Editor :
+-- coller TOUT le fichier, sans rien sélectionner, puis « Run »).
+--
 -- Conçu pour rester du PostgreSQL standard (migration Supabase → auto-hébergé) :
 --   * aucun trigger sur auth.users : l'initialisation d'un utilisateur (catégories
 --     par défaut, premier compte) est faite par l'application ;
@@ -12,12 +16,34 @@
 -- Un virement = deux lignes (source négative, destination positive) liées par
 -- transfer_id, si bien que solde = solde initial + somme des lignes du compte.
 
-create extension if not exists pgcrypto;
+-- gen_random_uuid() est natif depuis PostgreSQL 13 : aucune extension requise.
+
+-- ---------------------------------------------------------------------------
+-- Types énumérés (créés seulement s'ils n'existent pas)
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'account_type' and typnamespace = 'public'::regnamespace) then
+    create type public.account_type as enum ('current', 'savings', 'cash');
+  end if;
+  if not exists (select 1 from pg_type where typname = 'budget_mode' and typnamespace = 'public'::regnamespace) then
+    create type public.budget_mode as enum ('fixed', 'percent');
+  end if;
+  if not exists (select 1 from pg_type where typname = 'transaction_type' and typnamespace = 'public'::regnamespace) then
+    create type public.transaction_type as enum ('out', 'in', 'transfer', 'interest', 'adjust');
+  end if;
+  if not exists (select 1 from pg_type where typname = 'recurrence_frequency' and typnamespace = 'public'::regnamespace) then
+    create type public.recurrence_frequency as enum ('weekly', 'monthly', 'quarterly', 'yearly');
+  end if;
+  if not exists (select 1 from pg_type where typname = 'forecast_status' and typnamespace = 'public'::regnamespace) then
+    create type public.forecast_status as enum ('planned', 'linked');
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Profils / préférences
 -- ---------------------------------------------------------------------------
-create table public.profiles (
+create table if not exists public.profiles (
   id uuid primary key,                       -- = auth.users.id
   email text not null,
   display_name text,
@@ -34,9 +60,7 @@ create table public.profiles (
 -- ---------------------------------------------------------------------------
 -- Comptes
 -- ---------------------------------------------------------------------------
-create type public.account_type as enum ('current', 'savings', 'cash');
-
-create table public.accounts (
+create table if not exists public.accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
   name text not null check (length(trim(name)) > 0),
@@ -52,12 +76,12 @@ create table public.accounts (
   -- cible des clés étrangères composites (empêche de référencer le compte d'un autre utilisateur)
   unique (id, user_id)
 );
-create index accounts_user_idx on public.accounts (user_id);
+create index if not exists accounts_user_idx on public.accounts (user_id);
 
 -- ---------------------------------------------------------------------------
 -- Catégories
 -- ---------------------------------------------------------------------------
-create table public.categories (
+create table if not exists public.categories (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
   name text not null check (length(trim(name)) > 0),
@@ -70,18 +94,16 @@ create table public.categories (
   created_at timestamptz not null default now(),
   unique (id, user_id)
 );
-create index categories_user_idx on public.categories (user_id);
+create index if not exists categories_user_idx on public.categories (user_id);
 -- « Ce nom existe déjà » : unicité insensible à la casse parmi les catégories actives
-create unique index categories_user_name_uniq
+create unique index if not exists categories_user_name_uniq
   on public.categories (user_id, lower(trim(name)))
   where archived_at is null;
 
 -- ---------------------------------------------------------------------------
 -- Budgets (un par catégorie)
 -- ---------------------------------------------------------------------------
-create type public.budget_mode as enum ('fixed', 'percent');
-
-create table public.budgets (
+create table if not exists public.budgets (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
   category_id uuid not null,
@@ -92,14 +114,12 @@ create table public.budgets (
   unique (category_id),
   foreign key (category_id, user_id) references public.categories (id, user_id) on delete cascade
 );
-create index budgets_user_idx on public.budgets (user_id);
+create index if not exists budgets_user_idx on public.budgets (user_id);
 
 -- ---------------------------------------------------------------------------
 -- Transactions
 -- ---------------------------------------------------------------------------
-create type public.transaction_type as enum ('out', 'in', 'transfer', 'interest', 'adjust');
-
-create table public.transactions (
+create table if not exists public.transactions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
   account_id uuid not null,
@@ -126,17 +146,15 @@ create table public.transactions (
     (type = 'transfer') = (transfer_id is not null)
   )
 );
-create index transactions_user_date_idx on public.transactions (user_id, date desc);
-create index transactions_account_idx on public.transactions (account_id, date desc);
-create index transactions_transfer_idx on public.transactions (transfer_id) where transfer_id is not null;
-create index transactions_place_idx on public.transactions (user_id, lower(place));
+create index if not exists transactions_user_date_idx on public.transactions (user_id, date desc);
+create index if not exists transactions_account_idx on public.transactions (account_id, date desc);
+create index if not exists transactions_transfer_idx on public.transactions (transfer_id) where transfer_id is not null;
+create index if not exists transactions_place_idx on public.transactions (user_id, lower(place));
 
 -- ---------------------------------------------------------------------------
 -- Évolutions (v2) — tables créées dès maintenant pour figer le modèle
 -- ---------------------------------------------------------------------------
-create type public.recurrence_frequency as enum ('weekly', 'monthly', 'quarterly', 'yearly');
-
-create table public.recurrences (
+create table if not exists public.recurrences (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
   type public.transaction_type not null check (type in ('out', 'in', 'transfer')),
@@ -153,15 +171,18 @@ create table public.recurrences (
   created_at timestamptz not null default now(),
   check (end_date is null or end_date >= start_date)
 );
-create index recurrences_user_idx on public.recurrences (user_id);
+create index if not exists recurrences_user_idx on public.recurrences (user_id);
 
-alter table public.transactions
-  add constraint transactions_recurrence_fk
-  foreign key (recurrence_id) references public.recurrences (id) on delete set null;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'transactions_recurrence_fk') then
+    alter table public.transactions
+      add constraint transactions_recurrence_fk
+      foreign key (recurrence_id) references public.recurrences (id) on delete set null;
+  end if;
+end $$;
 
-create type public.forecast_status as enum ('planned', 'linked');
-
-create table public.forecast_items (
+create table if not exists public.forecast_items (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
   account_id uuid not null references public.accounts (id) on delete cascade,
@@ -172,9 +193,9 @@ create table public.forecast_items (
   linked_transaction_id uuid references public.transactions (id) on delete set null,
   created_at timestamptz not null default now()
 );
-create index forecast_items_user_idx on public.forecast_items (user_id, date);
+create index if not exists forecast_items_user_idx on public.forecast_items (user_id, date);
 
-create table public.goals (
+create table if not exists public.goals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
   account_id uuid not null references public.accounts (id) on delete cascade,
@@ -183,13 +204,13 @@ create table public.goals (
   target_date date not null,
   created_at timestamptz not null default now()
 );
-create index goals_user_idx on public.goals (user_id);
+create index if not exists goals_user_idx on public.goals (user_id);
 
 -- ---------------------------------------------------------------------------
 -- Vues de lecture
 -- ---------------------------------------------------------------------------
 -- Solde courant par compte = solde initial + somme signée des transactions
-create view public.account_balances
+create or replace view public.account_balances
 with (security_invoker = true) as
 select
   a.id as account_id,
@@ -201,7 +222,7 @@ left join public.transactions t on t.account_id = a.id
 group by a.id;
 
 -- Mémoire des lieux : dernière catégorie / dernier compte utilisés pour chaque lieu
-create view public.place_memory
+create or replace view public.place_memory
 with (security_invoker = true) as
 select distinct on (t.user_id, lower(trim(t.place)))
   t.user_id,
@@ -219,6 +240,7 @@ order by t.user_id, lower(trim(t.place)), t.date desc, t.created_at desc;
 -- Row Level Security : chaque utilisateur ne voit que ses lignes
 -- ---------------------------------------------------------------------------
 alter table public.profiles enable row level security;
+drop policy if exists "profiles_owner" on public.profiles;
 create policy "profiles_owner" on public.profiles
   for all using (id = auth.uid()) with check (id = auth.uid());
 
@@ -231,6 +253,7 @@ begin
     'recurrences', 'forecast_items', 'goals'
   ] loop
     execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists %I on public.%I', t || '_owner', t);
     execute format(
       'create policy %I on public.%I for all using (user_id = auth.uid()) with check (user_id = auth.uid())',
       t || '_owner', t
