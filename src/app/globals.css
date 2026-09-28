@@ -1,0 +1,150 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Jetons issus des maquettes v3 (_tokens.txt) */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --text: #1d2433;
+  --divider: #e4e7ec;
+  --accent: #148270;
+  --accent-100: #e7f4f1;
+  --accent-200: #c9e8e1;
+  --accent-500: #2c9c88;
+  --accent-600: #0f6d5e;
+  --accent-700: #0c5a4e;
+  --n-100: #f7f8fa;
+  --n-200: #eef0f3;
+  --n-300: #dde1e7;
+  --n-400: #c2c8d2;
+  --n-500: #98a1b0;
+  --n-600: #737d8d;
+  --n-700: #586274;
+  --n-800: #3b4454;
+  --n-900: #252c38;
+  --warn: #e9a23b;
+  --warn-100: #fdf3e1;
+  --warn-800: #7a4b06;
+  --danger: #e5574f;
+  --danger-100: #fdecea;
+  --danger-700: #b8322b;
+  --ink: #1d2433; /* puces actives, fond sombre des sélections */
+  --on-ink: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(29, 36, 51, 0.05), 0 1px 3px rgba(29, 36, 51, 0.06);
+  --shadow-md: 0 4px 14px rgba(29, 36, 51, 0.08);
+  --shadow-lg: 0 16px 40px rgba(29, 36, 51, 0.14);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #11151c;
+  --surface: #1a2029;
+  --text: #e8ebf0;
+  --divider: #2a3240;
+  --accent: #2fa892;
+  --accent-100: #12302b;
+  --accent-200: #184239;
+  --accent-500: #2fa892;
+  --accent-600: #5cc2ae;
+  --accent-700: #8fd8c9;
+  --n-100: #161b23;
+  --n-200: #222935;
+  --n-300: #2e3644;
+  --n-400: #465063;
+  --n-500: #6b7588;
+  --n-600: #8d96a7;
+  --n-700: #aab2c0;
+  --n-800: #cdd3dc;
+  --n-900: #e8ebf0;
+  --warn-100: #3a2c12;
+  --warn-800: #f3c77a;
+  --danger-100: #3b1c1b;
+  --danger-700: #f08a84;
+  --ink: #e8ebf0;
+  --on-ink: #11151c;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: var(--font-archivo), system-ui, sans-serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-divider: var(--divider);
+  --color-accent: var(--accent);
+  --color-accent-100: var(--accent-100);
+  --color-accent-200: var(--accent-200);
+  --color-accent-500: var(--accent-500);
+  --color-accent-600: var(--accent-600);
+  --color-accent-700: var(--accent-700);
+  --color-n-100: var(--n-100);
+  --color-n-200: var(--n-200);
+  --color-n-300: var(--n-300);
+  --color-n-400: var(--n-400);
+  --color-n-500: var(--n-500);
+  --color-n-600: var(--n-600);
+  --color-n-700: var(--n-700);
+  --color-n-800: var(--n-800);
+  --color-n-900: var(--n-900);
+  --color-warn: var(--warn);
+  --color-warn-100: var(--warn-100);
+  --color-warn-800: var(--warn-800);
+  --color-danger: var(--danger);
+  --color-danger-100: var(--danger-100);
+  --color-danger-700: var(--danger-700);
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
+  --shadow-card: var(--shadow-sm);
+  --shadow-pop: var(--shadow-md);
+  --shadow-modal: var(--shadow-lg);
+  --radius-card: 16px;
+  --radius-field: 10px;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 1; /* chiffres tabulaires pour les montants */
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.025em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
+::selection {
+  background: var(--accent-200);
+}
+
+/* Barre de défilement horizontale masquée pour les rangées de puces */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
