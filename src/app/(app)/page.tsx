@@ -5,6 +5,7 @@ import { getAppData, getTransactions } from "@/lib/data/queries";
 import { getBudgetOverview, resolveMonth } from "@/lib/data/views";
 import { addMonths, isInPeriod, lastMonths, monthAbbr, monthPeriod } from "@/lib/domain/dates";
 import { formatCents, formatPercent } from "@/lib/domain/money";
+import { formatList } from "@/lib/domain/text";
 import {
   balanceSeriesFromCurrent,
   expensesByCategory,
@@ -99,9 +100,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <Banner tone="warn" action={<Link href="/budgets" className="font-bold">Voir les budgets</Link>}>
             <span className="inline-flex items-center gap-2">
               <TriangleAlert size={15} />
-              {overs.length > 0 && `${overs.join(" et ")} au-dessus du budget. `}
-              {warns.map((w) => `${w.category.name} à ${formatPercent(w.ratio, 0)}`).join(", ")}
-              {warns.length > 0 && " - seuil de 80 % franchi."}
+              {overs.length > 0 && `${formatList(overs)} au-dessus du budget. `}
+              {warns.length > 0 &&
+                `${formatList(warns.map((w) => `${w.category.name} à ${formatPercent(w.ratio, 0)}`))} - seuil de 80 % franchi.`}
             </span>
           </Banner>
         </div>
