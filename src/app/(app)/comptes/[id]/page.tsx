@@ -106,9 +106,16 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
         </div>
       </div>
 
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-extrabold">Transactions du compte</h2>
-        <span className="text-xs text-n-600">{monthTxs.length} ce mois-ci</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-n-600">{monthTxs.length} ce mois-ci</span>
+          {!account.archivedAt && (
+            <Link href={`/import?compte=${account.id}`} className="text-xs font-bold text-accent-700 hover:text-accent">
+              Importer un CSV
+            </Link>
+          )}
+        </div>
       </div>
       {txs.length === 0 ? (
         <EmptyState>Aucune transaction sur les 12 derniers mois.</EmptyState>

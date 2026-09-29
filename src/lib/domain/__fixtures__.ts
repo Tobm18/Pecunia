@@ -67,7 +67,7 @@ export const demoTransactions: Transaction[] = [
   tx({ accountId: "courant", type: "in", amountCents: 4500, categoryId: "autres", place: "Remboursement Léa" }),
   tx({ accountId: "voyage", type: "interest", amountCents: 840, place: "Intérêts Épargne voyage" }),
   tx({ accountId: "courant", type: "adjust", amountCents: 312, place: "Régularisation" }),
-  tx({ accountId: "courant", type: "out", amountCents: -105000, categoryId: "logement", place: "Loyer — SCI Belleville" }),
+  tx({ accountId: "courant", type: "out", amountCents: -105000, categoryId: "logement", place: "Loyer - SCI Belleville" }),
   tx({ accountId: "courant", type: "out", amountCents: -8430, categoryId: "courses", place: "Carrefour" }),
   tx({ accountId: "courant", type: "out", amountCents: -11260, categoryId: "courses", place: "carrefour " }),
   tx({ accountId: "especes", type: "out", amountCents: -1850, categoryId: "courses", place: "Marché d'Aligre" }),

@@ -110,7 +110,7 @@ export function NewAccountButton() {
         onClose={() => setOpen(false)}
         title="Nouveau compte"
         footer={
-          <Button variant="primary" onClick={submit} disabled={!name.trim() || balanceInvalid || pending}>
+          <Button variant="primary" onClick={submit} loading={pending} disabled={!name.trim() || balanceInvalid}>
             Créer le compte
           </Button>
         }
@@ -164,7 +164,7 @@ export function RestoreAccountButton({ id }: { id: string }) {
   return (
     <Button
       variant="ghost"
-      disabled={pending}
+      loading={pending}
       onClick={() =>
         startTransition(async () => {
           const r = await setAccountArchived(id, false);
@@ -211,11 +211,11 @@ export function AdjustBalanceButton({ account, balanceCents }: { account: Accoun
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={`Ajuster le solde — ${account.name}`}
+        title={`Ajuster le solde - ${account.name}`}
         footer={
           <>
             <Button onClick={() => setOpen(false)}>Annuler</Button>
-            <Button variant="primary" onClick={submit} disabled={real === null || pending}>
+            <Button variant="primary" onClick={submit} loading={pending} disabled={real === null}>
               {diff === null ? "Valider" : "Créer la régularisation"}
             </Button>
           </>
@@ -259,6 +259,7 @@ export function AccountSettings({ account, balanceCents }: { account: Account; b
   const [icon, setIcon] = useState(account.icon);
   const [color, setColor] = useState(account.color);
   const [error, setError] = useState<string | null>(null);
+  const [action, setAction] = useState<"budget" | "edit" | "archive" | null>(null);
 
   function run(action: () => Promise<{ ok: boolean; error?: string }>, success: string, after?: () => void) {
     setError(null);
@@ -275,6 +276,7 @@ export function AccountSettings({ account, balanceCents }: { account: Account; b
   }
 
   function archive() {
+    setAction("archive");
     run(() => setAccountArchived(account.id, true), "Compte archivé", () => {
       setArchiveOpen(false);
       router.push("/comptes");
@@ -292,14 +294,22 @@ export function AccountSettings({ account, balanceCents }: { account: Account; b
           type="checkbox"
           checked={account.inBudget}
           disabled={pending}
-          onChange={(e) => run(() => setAccountInBudget(account.id, e.target.checked), "Préférence enregistrée")}
+          onChange={(e) => {
+            setAction("budget");
+            run(() => setAccountInBudget(account.id, e.target.checked), "Préférence enregistrée");
+          }}
         />
       </label>
       <div className="grid grid-cols-2 gap-2 border-t border-divider pt-3">
         <Button onClick={() => setEditOpen(true)}>
           <Pencil size={14} /> Modifier
         </Button>
-        <Button variant="ghost" onClick={() => (balanceCents !== 0 ? setArchiveOpen(true) : archive())} disabled={pending}>
+        <Button
+          variant="ghost"
+          onClick={() => (balanceCents !== 0 ? setArchiveOpen(true) : archive())}
+          loading={pending && action === "archive" && !archiveOpen}
+          disabled={pending}
+        >
           <Archive size={14} /> Archiver
         </Button>
       </div>
@@ -312,7 +322,11 @@ export function AccountSettings({ account, balanceCents }: { account: Account; b
           <Button
             variant="primary"
             disabled={!name.trim() || pending}
-            onClick={() => run(() => updateAccount(account.id, { name, icon, color }), "Compte modifié", () => setEditOpen(false))}
+            loading={pending && action === "edit"}
+            onClick={() => {
+              setAction("edit");
+              run(() => updateAccount(account.id, { name, icon, color }), "Compte modifié", () => setEditOpen(false));
+            }}
           >
             Enregistrer
           </Button>
@@ -335,14 +349,14 @@ export function AccountSettings({ account, balanceCents }: { account: Account; b
         footer={
           <>
             <Button onClick={() => setArchiveOpen(false)}>Annuler</Button>
-            <Button variant="danger" onClick={archive} disabled={pending}>
+            <Button variant="danger" onClick={archive} loading={pending && action === "archive"}>
               Archiver quand même
             </Button>
           </>
         }
       >
         <p className="text-sm">
-          Ce compte a un solde de <strong>{formatCents(balanceCents)}</strong> — archiver quand même ? Son historique reste
+          Ce compte a un solde de <strong>{formatCents(balanceCents)}</strong> - archiver quand même ? Son historique reste
           consultable et intact.
         </p>
       </Modal>

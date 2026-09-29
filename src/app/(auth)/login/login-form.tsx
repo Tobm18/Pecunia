@@ -19,7 +19,7 @@ export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState<false | "password" | "magic">(false);
 
   function validateEmail(): boolean {
     if (!email.trim()) {
@@ -46,20 +46,21 @@ export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
       passwordRef.current?.focus();
       return;
     }
-    setPending(true);
+    setPending("password");
     try {
       const { error: authError } = await createClient().auth.signInWithPassword({ email: email.trim(), password });
       if (authError) {
         const invalid = authError.status === 400 || authError.code === "invalid_credentials";
         setError(invalid ? "Email ou mot de passe incorrect" : "Connexion impossible, réessaie dans un instant");
         if (invalid) setPassword("");
+        setPending(false);
         return;
       }
+      // le spinner reste affiché jusqu'à l'arrivée sur le tableau de bord
       router.replace("/");
       router.refresh();
     } catch {
       setError("Connexion impossible, réessaie dans un instant");
-    } finally {
       setPending(false);
     }
   }
@@ -69,7 +70,7 @@ export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
     setInfo(null);
     setFieldErrors({});
     if (!validateEmail()) return;
-    setPending(true);
+    setPending("magic");
     try {
       await createClient().auth.signInWithOtp({
         email: email.trim(),
@@ -117,8 +118,8 @@ export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
       <Link href="/mot-de-passe-oublie" className="self-start text-sm font-bold text-accent-700 hover:text-accent">
         Mot de passe oublié ?
       </Link>
-      <Button type="submit" variant="primary" disabled={pending} className="w-full">
-        {pending ? "Connexion…" : "Se connecter"}
+      <Button type="submit" variant="primary" loading={pending === "password"} disabled={!!pending} className="w-full">
+        {pending === "password" ? "Connexion…" : "Se connecter"}
       </Button>
       <FieldError>{error}</FieldError>
       {info && <Banner tone="success">{info}</Banner>}
@@ -128,8 +129,8 @@ export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
         <span className="h-px flex-1 bg-divider" />
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Button onClick={sendMagicLink} disabled={pending}>
-          <Mail size={16} /> Lien magique
+        <Button onClick={sendMagicLink} loading={pending === "magic"} disabled={!!pending}>
+          {pending !== "magic" && <Mail size={16} />} Lien magique
         </Button>
         <Button disabled title="Bientôt disponible">
           <KeyRound size={16} /> Passkey

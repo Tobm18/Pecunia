@@ -2,6 +2,7 @@
 import { clsx } from "clsx";
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode, SelectHTMLAttributes } from "react";
 import type { BudgetStatus } from "@/lib/domain/budgets";
+import { Spinner } from "./spinner";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -16,13 +17,22 @@ export function buttonClass(variant: ButtonVariant = "secondary", extra?: string
   );
 }
 
+/** Bouton ; `loading` affiche un spinner et le désactive pendant un envoi. */
 export function Button({
   variant = "secondary",
   className,
   type = "button",
+  loading = false,
+  disabled,
+  children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
-  return <button type={type} className={buttonClass(variant, className)} {...props} />;
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; loading?: boolean }) {
+  return (
+    <button type={type} className={buttonClass(variant, className)} disabled={disabled || loading} aria-busy={loading || undefined} {...props}>
+      {loading && <Spinner size={15} />}
+      {children}
+    </button>
+  );
 }
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {

@@ -31,12 +31,15 @@ export function SignupForm() {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
-    setPending(false);
-    if (signUpError) return setError("Inscription impossible, vérifie l'email ou réessaie plus tard.");
+    if (signUpError) {
+      setPending(false);
+      return setError("Inscription impossible, vérifie l'email ou réessaie plus tard.");
+    }
     if (data.session) {
       router.replace("/");
       router.refresh();
     } else {
+      setPending(false);
       setCheckEmail(true);
     }
   }
@@ -60,8 +63,8 @@ export function SignupForm() {
         <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>
       <FieldError>{error}</FieldError>
-      <Button type="submit" variant="primary" disabled={pending} className="w-full">
-        Créer mon compte
+      <Button type="submit" variant="primary" loading={pending} className="w-full">
+        {pending ? "Création du compte…" : "Créer mon compte"}
       </Button>
       <Link href="/login" className="text-sm font-bold text-accent-700">
         ← J&apos;ai déjà un compte

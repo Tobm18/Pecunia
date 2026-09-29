@@ -7,6 +7,9 @@ import { signOut, updateProfile } from "@/lib/data/actions";
 import type { Profile } from "@/lib/domain/types";
 import { Card, Segmented, Select } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/overlay";
+import { Spinner } from "@/components/ui/spinner";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { APP_NAME, copyrightLine, versionLabel } from "@/lib/version";
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
@@ -40,7 +43,9 @@ export function SettingsForm({ profile }: { profile: Profile }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
-        <h2 className="text-[11px] font-bold uppercase tracking-wider text-n-700">Préférences</h2>
+        <h2 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-n-700">
+          Préférences {pending && <Spinner size={12} label="Enregistrement" />}
+        </h2>
         <div className="divide-y divide-divider">
           <Row label="Devise">
             <span className="text-sm text-n-700">Euro (€)</span>
@@ -79,6 +84,11 @@ export function SettingsForm({ profile }: { profile: Profile }) {
       <Card>
         <h2 className="text-[11px] font-bold uppercase tracking-wider text-n-700">Données</h2>
         <div className="divide-y divide-divider">
+          <Row label="Importer un CSV" hint="Historique d'un compte (tableur, export bancaire)">
+            <a href="/import" className="inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-n-300 px-3 text-sm font-semibold hover:bg-n-100">
+              Importer
+            </a>
+          </Row>
           <Row label="Export CSV" hint="Toutes les transactions, lisible dans Excel">
             <a href="/api/export/csv" className="inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-n-300 px-3 text-sm font-semibold hover:bg-n-100">
               <Download size={15} /> CSV
@@ -104,11 +114,25 @@ export function SettingsForm({ profile }: { profile: Profile }) {
           </Row>
           <div className="py-3">
             <form action={signOut}>
-              <button type="submit" className="inline-flex min-h-10 items-center gap-2 font-semibold text-danger-700">
+              <SubmitButton className="inline-flex min-h-10 items-center gap-2 font-semibold text-danger-700" pendingChildren="Déconnexion…">
                 <LogOut size={16} /> Se déconnecter
-              </button>
+              </SubmitButton>
             </form>
           </div>
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-[11px] font-bold uppercase tracking-wider text-n-700">À propos</h2>
+        <div className="divide-y divide-divider">
+          <Row label="Version">
+            <span className="text-sm text-n-700 tabular-nums">
+              {APP_NAME} {versionLabel()}
+            </span>
+          </Row>
+          <Row label="Copyright">
+            <span className="text-sm text-n-700">{copyrightLine()} · Tous droits réservés</span>
+          </Row>
         </div>
       </Card>
     </div>

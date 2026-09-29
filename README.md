@@ -73,7 +73,7 @@ src/proxy.ts             Rafraîchissement de session et redirection vers /login
 
 ## Avancement
 
-### MVP (v1) — livré
+### MVP (v1) - livré
 
 - [x] Authentification : email + mot de passe, lien magique, mot de passe oublié / réinitialisation, messages neutres
 - [x] Comptes : création, liste, soldes, sparklines, détail, ajustement de solde (régularisation), « dans le budget », modification, archivage / restauration
@@ -84,10 +84,25 @@ src/proxy.ts             Rafraîchissement de session et redirection vers /login
 - [x] Tableau de bord : KPI du mois, comptes, budget global, répartition, historique 6 / 12 mois, alertes, top lieux
 - [x] Paramètres : début du mois, thème clair / sombre, export CSV, sauvegarde JSON
 
+- [x] Import CSV par compte (`/import`), détaillé plus bas
+
+### Import CSV
+
+Un fichier par compte. Le format de référence est celui du tableur (`Raison;Date;Recette;Depense;Total`), mais les exports bancaires avec une colonne « Montant » signée fonctionnent aussi.
+
+1. Choisir le compte, ou le laisser deviner d'après le nom du fichier (« LivretA.csv » → Livret A), puis déposer le fichier. L'encodage est détecté automatiquement (UTF-8 ou Windows-1252 des exports Excel), comme le séparateur et les colonnes. La correspondance reste modifiable.
+2. Un tableau modifiable s'affiche : date, type, libellé, catégorie ou autre compte, montant. On peut exclure, modifier, supprimer ou ajouter des lignes.
+   - Les **virements** sont reconnus au nom d'un autre compte dans le libellé (« vers livretA », « livret A : essence », « recharge compte courant »).
+   - Les **catégories** viennent de la mémoire des lieux, puis de mots-clés, avec « Autres » par défaut. Le filtre « À vérifier » regroupe les lignes à revoir. Changer une catégorie l'applique aux lignes de même libellé.
+   - Les lignes **déjà présentes** sur le compte sont exclues par défaut : même montant, même jour, ou jusqu'à ±3 jours pour un virement. C'est notamment le cas du côté d'un virement créé lors de l'import de l'autre compte.
+3. Le **solde initial** est déduit de la colonne Total, et le solde après import est comparé au total du fichier.
+4. « Valider le bloc » : l'import est ré-exécutable, les lignes identiques déjà enregistrées sont ignorées.
+
+Conseil : importer d'abord le compte courant (les virements vers l'épargne créent aussi leur ligne côté épargne), puis le livret. Au 2e import, ces virements apparaissent comme « Déjà présentes ».
+
 ### Évolutions (v2)
 
-- [ ] Saisie en lot (tableau éditable) et modèles rapides
-- [ ] Import CSV avec correspondance des colonnes
+- [ ] Modèles rapides (loyer, salaire, abonnements). Le « Tableau vide » de l'import sert déjà de saisie en lot
 - [ ] Récurrences (tables prêtes) et rapprochement avec le prévisionnel
 - [ ] Prévisionnel : solde projeté par compte, alertes de solde négatif
 - [ ] Objectifs d'épargne (table prête)

@@ -1,4 +1,4 @@
--- Pecunia — schéma initial
+-- Pecunia - schéma initial
 --
 -- Script IDEMPOTENT : il peut être relancé en entier sans erreur, même si une
 -- exécution précédente s'est arrêtée en cours de route (Supabase SQL Editor :
@@ -152,7 +152,7 @@ create index if not exists transactions_transfer_idx on public.transactions (tra
 create index if not exists transactions_place_idx on public.transactions (user_id, lower(place));
 
 -- ---------------------------------------------------------------------------
--- Évolutions (v2) — tables créées dès maintenant pour figer le modèle
+-- Évolutions (v2) - tables créées dès maintenant pour figer le modèle
 -- ---------------------------------------------------------------------------
 create table if not exists public.recurrences (
   id uuid primary key default gen_random_uuid(),

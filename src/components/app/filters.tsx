@@ -10,7 +10,7 @@ import { shortAccountName } from "@/lib/domain/accounts";
 const arrow =
   "flex size-11 items-center justify-center rounded-xl border border-n-300 bg-surface hover:bg-n-100 md:size-8 md:rounded-lg";
 
-/** ‹ Septembre 2026 › — bloqué au-delà du mois courant. */
+/** ‹ Septembre 2026 › - bloqué au-delà du mois courant. */
 export function MonthSwitcher({
   path,
   month,

@@ -40,7 +40,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
           </p>
           <ProgressBar ratio={overview.ratio} status={overview.status} className="mt-3" />
           <p className="mt-1.5 text-xs text-n-600">
-            {formatCents(overview.totalSpentCents)} sur {formatCents(overview.totalBudgetCents)} · {formatPercent(overview.ratio, 0)} —
+            {formatCents(overview.totalSpentCents)} sur {formatCents(overview.totalBudgetCents)} · {formatPercent(overview.ratio, 0)} -
             dépenses réelles uniquement
           </p>
         </Card>
