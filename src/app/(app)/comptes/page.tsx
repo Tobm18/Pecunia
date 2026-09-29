@@ -93,7 +93,7 @@ export default async function AccountsPage() {
 
       {archived.length > 0 && (
         <Card>
-          <h2 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-n-600">Archivés — historique conservé</h2>
+          <h2 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-n-600">Archivés - historique conservé</h2>
           <ul className="divide-y divide-divider">
             {archived.map((a) => (
               <li key={a.id} className="flex items-center gap-3 py-2 opacity-70">

@@ -12,7 +12,7 @@ import {
   topPlaces,
 } from "./stats";
 
-describe("summarize — règle des virements", () => {
+describe("summarize - règle des virements", () => {
   const s = summarize(demoTransactions, demoAccounts);
 
   it("compte les entrées y compris intérêts, sans régularisation ni virements", () => {
@@ -77,7 +77,7 @@ describe("expensesByCategory", () => {
 describe("topPlaces", () => {
   it("fusionne les lieux sans tenir compte de la casse", () => {
     const top = topPlaces(demoTransactions);
-    expect(top[0]!.place).toBe("Loyer — SCI Belleville");
+    expect(top[0]!.place).toBe("Loyer - SCI Belleville");
     expect(top[1]).toMatchObject({ place: "Carrefour", cents: 19690, count: 2 });
     expect(top.some((p) => p.place.startsWith("Virement"))).toBe(false);
   });

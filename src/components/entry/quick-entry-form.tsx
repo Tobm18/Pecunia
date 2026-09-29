@@ -10,6 +10,7 @@ import { formatCents, formatPercent, sanitizeAmountInput } from "@/lib/domain/mo
 import { findPlace, suggestPlaces } from "@/lib/domain/places";
 import type { Account, Category } from "@/lib/domain/types";
 import { iconFor } from "@/components/ui/icons";
+import { Spinner } from "@/components/ui/spinner";
 import { Banner, Button, FieldError, Input, Label, Segmented, Select } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/overlay";
 import { useAppData } from "@/components/app/app-data";
@@ -224,7 +225,7 @@ export function QuickEntryForm({
       {budgetAlert && (
         <Banner tone="warn" onClose={() => setBudgetAlert(null)}>
           <strong>{budgetAlert.categoryName}</strong> : {formatPercent(budgetAlert.ratio, 0)} du budget
-          {budgetAlert.over ? " — dépassé." : ""}
+          {budgetAlert.over ? " - dépassé." : ""}
         </Banner>
       )}
 
@@ -281,7 +282,7 @@ export function QuickEntryForm({
             {transferCards(toAccountId, setToAccountId, "Compte destination")}
           </div>
           <p className="rounded-xl bg-n-100 px-4 py-3 text-sm text-n-700">
-            Pas de catégorie — exclu des dépenses, des budgets et du taux d&apos;épargne.
+            Pas de catégorie - exclu des dépenses, des budgets et du taux d&apos;épargne.
           </p>
           <div>
             <Label htmlFor="entry-label">Libellé (facultatif)</Label>
@@ -438,7 +439,10 @@ export function QuickEntryForm({
             isSheet ? "min-h-14 w-full px-5 text-lg" : "min-h-10 px-4 text-sm",
           )}
         >
-          {pending ? "Enregistrement…" : "Valider et continuer"}
+          <span className="flex items-center gap-2">
+            {pending && <Spinner size={isSheet ? 18 : 15} />}
+            {pending ? "Enregistrement…" : "Valider et continuer"}
+          </span>
           {isSheet ? (
             <span className="text-sm font-medium opacity-75">date conservée</span>
           ) : (

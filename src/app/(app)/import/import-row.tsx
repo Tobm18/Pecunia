@@ -6,6 +6,7 @@ import { memo } from "react";
 import { DRAFT_TYPE_LABELS, isTransferType, type DraftRow, type DraftType } from "@/lib/domain/csv-import";
 import { numericDate } from "@/lib/domain/dates";
 import { sanitizeAmountInput } from "@/lib/domain/money";
+import type { ExistingLine } from "@/lib/domain/csv-import";
 import type { Account, Category } from "@/lib/domain/types";
 
 const cell = "h-9 w-full rounded-lg border border-transparent bg-transparent px-2 text-sm hover:border-n-300 focus:border-accent focus:bg-surface focus:outline-none";
@@ -20,6 +21,8 @@ export interface RowActions {
 export const ImportRowView = memo(function ImportRowView({
   row,
   problem,
+  link,
+  linkAccountName,
   typeOptions,
   categories,
   otherAccounts,
@@ -27,6 +30,9 @@ export const ImportRowView = memo(function ImportRowView({
 }: {
   row: DraftRow;
   problem: string | null;
+  /** Ligne existante de l'autre compte qui deviendra l'autre moitié du virement */
+  link: ExistingLine | null;
+  linkAccountName: string;
   typeOptions: DraftType[];
   categories: Category[];
   otherAccounts: Account[];
@@ -126,6 +132,13 @@ export const ImportRowView = memo(function ImportRowView({
           </span>
         ) : row.include && problem ? (
           <span className="font-semibold text-danger-700">{problem}</span>
+        ) : row.include && link ? (
+          <span
+            className="rounded-full bg-accent-100 px-2 py-0.5 font-semibold text-accent-700"
+            title={`« ${link.place ?? ""} » du ${numericDate(link.date)} sur ${linkAccountName} sera converti en virement`}
+          >
+            Relié ({linkAccountName})
+          </span>
         ) : row.line === null ? (
           <span className="text-n-600">Ajoutée</span>
         ) : null}

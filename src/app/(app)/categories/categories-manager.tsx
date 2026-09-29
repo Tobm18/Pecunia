@@ -35,13 +35,15 @@ export function CategoriesManager({
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [action, setAction] = useState<string | null>(null);
   const active = categories.filter((c) => !c.archivedAt);
   const archived = categories.filter((c) => c.archivedAt);
 
-  function run(action: () => Promise<{ ok: boolean; error?: string }>, success?: string, after?: () => void) {
+  function run(task: () => Promise<{ ok: boolean; error?: string }>, success?: string, after?: () => void, name: string | null = null) {
     setError(null);
+    setAction(name);
     startTransition(async () => {
-      const r = await action();
+      const r = await task();
       if (!r.ok) {
         setError(r.error ?? null);
         if (!draft) toast(r.error ?? "Erreur", "error");
@@ -65,6 +67,7 @@ export function CategoriesManager({
       () => (draft.id ? updateCategory(draft.id, input) : createCategory(input)),
       draft.id ? "Catégorie modifiée" : "Catégorie créée",
       () => setDraft(null),
+      "save",
     );
   }
 
@@ -90,7 +93,7 @@ export function CategoriesManager({
                 <IconBadge icon={c.icon} color={c.color} />
                 <span className="flex-1 font-bold">{c.name}</span>
                 <span className="text-sm text-n-600 tabular-nums">
-                  {c.isIncome ? "Entrée" : budgetByCategory[c.id] !== undefined ? formatCents(budgetByCategory[c.id]!) : "—"}
+                  {c.isIncome ? "Entrée" : budgetByCategory[c.id] !== undefined ? formatCents(budgetByCategory[c.id]!) : "-"}
                 </span>
               </button>
               <button
@@ -125,7 +128,12 @@ export function CategoriesManager({
               <li key={c.id} className="flex items-center gap-3 py-2 opacity-70">
                 <IconBadge icon={c.icon} color={c.color} size="sm" />
                 <span className="flex-1 text-sm font-semibold">{c.name}</span>
-                <Button variant="ghost" disabled={pending} onClick={() => run(() => setCategoryArchived(c.id, false), "Catégorie restaurée")}>
+                <Button
+                  variant="ghost"
+                  disabled={pending}
+                  loading={pending && action === `restore-${c.id}`}
+                  onClick={() => run(() => setCategoryArchived(c.id, false), "Catégorie restaurée", undefined, `restore-${c.id}`)}
+                >
                   Restaurer
                 </Button>
               </li>
@@ -143,14 +151,15 @@ export function CategoriesManager({
             <>
               {draft.id && (
                 <Button
-                  onClick={() => run(() => setCategoryArchived(draft.id!, true), "Catégorie archivée", () => setDraft(null))}
+                  onClick={() => run(() => setCategoryArchived(draft.id!, true), "Catégorie archivée", () => setDraft(null), "archive")}
+                  loading={pending && action === "archive"}
                   disabled={pending}
                   className="mr-auto"
                 >
                   Archiver
                 </Button>
               )}
-              <Button variant="primary" onClick={save} disabled={!draft.name.trim() || pending}>
+              <Button variant="primary" onClick={save} loading={pending && action === "save"} disabled={!draft.name.trim() || pending}>
                 Enregistrer
               </Button>
             </>

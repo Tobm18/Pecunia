@@ -7,7 +7,7 @@ import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useAppData } from "@/components/app/app-data";
 import { Banner, Button, Card, Chip, Label, Select, buttonClass } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/overlay";
-import { getExistingLines, importTransactions } from "@/lib/data/import-actions";
+import { getLinesInRange, importTransactions } from "@/lib/data/import-actions";
 import {
   COLUMN_ROLE_LABELS,
   buildDrafts,
@@ -19,6 +19,7 @@ import {
   draftToItem,
   extractRows,
   fileBalances,
+  findTransferLinks,
   guessColumns,
   isTransferType,
   normalizeText,
@@ -26,12 +27,14 @@ import {
   type ColumnRole,
   type DraftRow,
   type DraftType,
+  type ExistingLine,
   type ParsedCsv,
 } from "@/lib/domain/csv-import";
 import { numericDate, todayIso } from "@/lib/domain/dates";
 import { formatCents } from "@/lib/domain/money";
 import type { Account } from "@/lib/domain/types";
 import { ImportRowView, type RowActions } from "./import-row";
+import { Spinner } from "@/components/ui/spinner";
 
 type Filter = "all" | "review" | "transfers" | "existing" | "excluded";
 
@@ -66,12 +69,15 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
   );
   const [file, setFile] = useState<LoadedFile | null>(null);
   const [drafts, setDrafts] = useState<DraftRow[] | null>(null);
+  /** Lignes des autres comptes sur la période (mouvements à relier aux virements) */
+  const [otherLines, setOtherLines] = useState<ExistingLine[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [setOpening, setSetOpening] = useState(false);
-  const [result, setResult] = useState<{ inserted: number; skipped: number; accountName: string; accountId: string } | null>(null);
+  const [result, setResult] = useState<{ inserted: number; skipped: number; linked: number; accountName: string; accountId: string } | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const newKey = useRef(0);
 
   const account = activeAccounts.find((a) => a.id === accountId);
@@ -98,7 +104,9 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
       }
       const dates = rows.map((r) => r.date).sort();
       startTransition(async () => {
-        const existing = await getExistingLines(target.id, dates[0]!, dates[dates.length - 1]!).catch(() => []);
+        const lines = await getLinesInRange(dates[0]!, dates[dates.length - 1]!).catch(() => [] as ExistingLine[]);
+        setOtherLines(lines.filter((l) => l.accountId !== target.id));
+        const existing = lines.filter((l) => l.accountId === target.id);
         setDrafts(buildDrafts({ rows, account: target, accounts: activeAccounts, categorizer, existing }));
       });
     },
@@ -200,6 +208,8 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
     [drafts, accountId],
   );
 
+  const links = useMemo(() => findTransferLinks(drafts ?? [], otherLines), [drafts, otherLines]);
+
   const autresId = activeCategories.find((c) => normalizeText(c.name) === "autres")?.id;
   const visible = useMemo(() => {
     const q = normalizeText(search);
@@ -237,14 +247,17 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
   function submit() {
     if (!account || summary.valid.length === 0) return;
     setSubmitError(null);
+    setSubmitting(true);
     startTransition(async () => {
       const res = await importTransactions({
-        items: summary.valid.map((d) => draftToItem(d, account.id)),
+        items: summary.valid.map((d) => draftToItem(d, account.id, links.get(d.key)?.id ?? null)),
         openingBalances: setOpening && file?.opening ? [{ accountId: account.id, cents: file.opening.cents, date: file.opening.date }] : [],
       }).catch(() => ({ ok: false as const, error: "Import impossible, réessaie dans un instant." }));
+      setSubmitting(false);
       if (!res.ok) return setSubmitError(res.error);
       toast(`${res.inserted} transaction${res.inserted > 1 ? "s" : ""} importée${res.inserted > 1 ? "s" : ""}`);
-      setResult({ inserted: res.inserted, skipped: res.skipped, accountName: account.name, accountId: account.id });
+      setResult({ inserted: res.inserted, skipped: res.skipped, linked: res.linked, accountName: account.name, accountId: account.id });
+      setOtherLines([]);
       setDrafts(null);
       setFile(null);
       if (fileInput.current) fileInput.current.value = "";
@@ -274,7 +287,8 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
             <CircleCheck size={16} />
             {result.inserted} transaction{result.inserted > 1 ? "s" : ""} importée{result.inserted > 1 ? "s" : ""} sur{" "}
             {result.accountName}
-            {result.skipped > 0 && ` · ${result.skipped} déjà présente${result.skipped > 1 ? "s" : ""} ignorée${result.skipped > 1 ? "s" : ""}`}.
+            {result.skipped > 0 && ` · ${result.skipped} déjà présente${result.skipped > 1 ? "s" : ""} ignorée${result.skipped > 1 ? "s" : ""}`}
+            {result.linked > 0 && ` · ${result.linked} virement${result.linked > 1 ? "s" : ""} relié${result.linked > 1 ? "s" : ""} à une ligne existante`}.
           </span>
         </Banner>
       )}
@@ -332,7 +346,7 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
               <div key={i}>
                 <Label htmlFor={`col-${i}`}>
                   {h || `Colonne ${i + 1}`}{" "}
-                  <span className="text-n-500">· {file.parsed.rows[0]?.cells[i] || "—"}</span>
+                  <span className="text-n-500">· {file.parsed.rows[0]?.cells[i] || "-"}</span>
                 </Label>
                 <Select id={`col-${i}`} value={file.roles[i]} onChange={(e) => changeRole(i, e.target.value as ColumnRole)}>
                   {(Object.keys(COLUMN_ROLE_LABELS) as ColumnRole[]).map((r) => (
@@ -368,7 +382,18 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
       )}
 
       {/* Étape 3 : tableau modifiable */}
-      {pending && !drafts && <Card>Lecture du fichier…</Card>}
+      {pending && !drafts && (
+        <Card>
+          <p className="flex items-center gap-2 text-sm text-n-700">
+            <Spinner /> Lecture du fichier et recherche des lignes déjà enregistrées…
+          </p>
+        </Card>
+      )}
+      {pending && drafts && !submitting && (
+        <p className="flex items-center gap-2 text-sm text-n-700">
+          <Spinner /> Mise à jour du tableau…
+        </p>
+      )}
       {drafts && account && (
         <Card className="!p-0">
           <div className="flex flex-col gap-3 border-b border-divider p-4">
@@ -404,6 +429,8 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
             <p className="text-xs text-n-600">
               Changer la catégorie d&apos;une ligne l&apos;applique aux autres lignes de même libellé. Les lignes « Déjà présentes »
               existent déjà sur ce compte (par exemple un virement créé lors de l&apos;import de l&apos;autre compte) : elles sont exclues.
+              Un virement « Relié » correspond à une entrée ou sortie déjà saisie sur l&apos;autre compte : elle sera convertie en
+              virement au lieu d&apos;être dupliquée.
             </p>
           </div>
 
@@ -437,6 +464,8 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
                     key={d.key}
                     row={d}
                     problem={problems.get(d.key) ?? null}
+                    link={links.get(d.key) ?? null}
+                    linkAccountName={links.get(d.key) ? (activeAccounts.find((a) => a.id === links.get(d.key)!.accountId)?.name ?? "") : ""}
                     typeOptions={typeOptions}
                     categories={activeCategories}
                     otherAccounts={otherAccounts}
@@ -490,8 +519,14 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
                   </p>
                 )}
               </div>
-              <Button variant="primary" onClick={submit} disabled={pending || summary.valid.length === 0} className={clsx("md:min-h-10")}>
-                {pending ? "Import en cours…" : `Valider le bloc · ${summary.valid.length} transaction${summary.valid.length > 1 ? "s" : ""}`}
+              <Button
+                variant="primary"
+                onClick={submit}
+                loading={submitting}
+                disabled={pending || summary.valid.length === 0}
+                className={clsx("md:min-h-10")}
+              >
+                {submitting ? "Import en cours…" : `Valider le bloc · ${summary.valid.length} transaction${summary.valid.length > 1 ? "s" : ""}`}
               </Button>
             </div>
             {submitError && <p className="text-sm font-semibold text-danger-700">{submitError}</p>}

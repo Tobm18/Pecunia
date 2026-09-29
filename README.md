@@ -73,7 +73,7 @@ src/proxy.ts             Rafraîchissement de session et redirection vers /login
 
 ## Avancement
 
-### MVP (v1) — livré
+### MVP (v1) - livré
 
 - [x] Authentification : email + mot de passe, lien magique, mot de passe oublié / réinitialisation, messages neutres
 - [x] Comptes : création, liste, soldes, sparklines, détail, ajustement de solde (régularisation), « dans le budget », modification, archivage / restauration

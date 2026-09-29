@@ -1,6 +1,6 @@
 /**
  * Budgets par catégorie : montant fixe ou pourcentage du revenu de référence.
- * Seules les dépenses (« out ») des comptes concernés comptent — jamais les virements.
+ * Seules les dépenses (« out ») des comptes concernés comptent - jamais les virements.
  */
 import type { Account, Budget, Category, Transaction } from "./types";
 import { isExpense } from "./stats";

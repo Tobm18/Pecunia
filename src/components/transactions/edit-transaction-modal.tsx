@@ -50,6 +50,7 @@ export function EditTransactionModal({
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [action, setAction] = useState<"save" | "delete" | null>(null);
 
   useEffect(() => {
     setForm(tx ? toInput(tx, transactions) : null);
@@ -73,6 +74,7 @@ export function EditTransactionModal({
 
   function save() {
     setError(null);
+    setAction("save");
     startTransition(async () => {
       const result = await updateTransaction(tx!.id, form!);
       if (!result.ok) return setError(result.error);
@@ -83,6 +85,7 @@ export function EditTransactionModal({
 
   function remove() {
     if (!confirmDelete) return setConfirmDelete(true);
+    setAction("delete");
     startTransition(async () => {
       const result = await deleteTransaction(tx!.id);
       if (!result.ok) return setError(result.error);
@@ -98,11 +101,17 @@ export function EditTransactionModal({
       title={isAdjust ? "Régularisation" : "Modifier"}
       footer={
         <>
-          <Button variant={confirmDelete ? "danger" : "secondary"} onClick={remove} disabled={pending} className="mr-auto">
+          <Button
+            variant={confirmDelete ? "danger" : "secondary"}
+            onClick={remove}
+            loading={pending && action === "delete"}
+            disabled={pending}
+            className="mr-auto"
+          >
             {confirmDelete ? "Confirmer la suppression" : "Supprimer"}
           </Button>
           {!isAdjust && (
-            <Button variant="primary" onClick={save} disabled={!canSave || pending}>
+            <Button variant="primary" onClick={save} loading={pending && action === "save"} disabled={!canSave || pending}>
               Enregistrer
             </Button>
           )}
@@ -167,7 +176,7 @@ export function EditTransactionModal({
               <div>
                 <Label htmlFor="edit-category">Catégorie</Label>
                 <Select id="edit-category" value={form.categoryId ?? ""} onChange={(e) => set({ categoryId: e.target.value || null })}>
-                  <option value="">—</option>
+                  <option value="">-</option>
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}

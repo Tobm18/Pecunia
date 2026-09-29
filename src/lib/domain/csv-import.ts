@@ -1,5 +1,5 @@
 /**
- * Import CSV (tableur maison ou export bancaire) — logique pure, sans dépendance au navigateur.
+ * Import CSV (tableur maison ou export bancaire) - logique pure, sans dépendance au navigateur.
  *
  * Format de référence (un fichier par compte) :
  *   Raison;Date;Recette;Depense;Total
@@ -288,12 +288,12 @@ function daysBetween(a: IsoDate, b: IsoDate): number {
   return Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
 }
 
-/** Ligne existante minimale utilisée pour repérer les doublons. */
-export type ExistingLine = Pick<Transaction, "id" | "date" | "amountCents" | "type" | "place" | "counterpartAccountId">;
+/** Ligne existante minimale utilisée pour repérer les doublons et relier les virements. */
+export type ExistingLine = Pick<Transaction, "id" | "accountId" | "date" | "amountCents" | "type" | "place" | "counterpartAccountId">;
 
 /**
  * Repère les lignes du fichier déjà présentes sur le compte : même montant signé, même
- * date — ou jusqu'à 3 jours d'écart pour un virement (créé lors de l'import de l'autre
+ * date - ou jusqu'à 3 jours d'écart pour un virement (créé lors de l'import de l'autre
  * compte, parfois daté du jour de l'autre côté). Correspondance un pour un.
  */
 export function matchExisting(
@@ -458,6 +458,38 @@ export function buildDrafts(params: {
   });
 }
 
+/**
+ * Un virement importé touche aussi l'autre compte. Si ce compte contient déjà le même
+ * mouvement enregistré comme simple entrée ou sortie (ex. « recharge » +100 € sur le
+ * courant, importé avant le livret), on relie cette ligne au lieu d'en créer une seconde :
+ * elle devient l'autre moitié du virement. Montant opposé, ±3 jours, un pour un.
+ */
+export function findTransferLinks(drafts: DraftRow[], otherLines: ExistingLine[]): Map<string, ExistingLine> {
+  const links = new Map<string, ExistingLine>();
+  const used = new Set<string>();
+  const candidates = drafts.filter((d) => d.include && !d.existing && isTransferType(d.type) && d.counterpartId && isValidIsoDate(d.date));
+  for (const pass of [0, 1, 2, 3]) {
+    for (const d of candidates) {
+      if (links.has(d.key)) continue;
+      const counterpartCents = -draftSignedCents(d);
+      if (counterpartCents === 0) continue;
+      const hit = otherLines.find(
+        (e) =>
+          !used.has(e.id) &&
+          e.accountId === d.counterpartId &&
+          (e.type === "in" || e.type === "out") &&
+          e.amountCents === counterpartCents &&
+          daysBetween(e.date, d.date) === pass,
+      );
+      if (hit) {
+        links.set(d.key, hit);
+        used.add(hit.id);
+      }
+    }
+  }
+  return links;
+}
+
 /** Ce qui empêche une ligne d'être importée (null = ligne valide). */
 export function draftProblem(d: DraftRow, accountId: string): string | null {
   if (!isValidIsoDate(d.date)) return "Date invalide";
@@ -481,10 +513,20 @@ export function draftSignedCents(d: DraftRow): number {
 
 export type ImportItem =
   | { kind: "out" | "in" | "interest"; accountId: string; date: IsoDate; place: string; categoryId: string | null; amountCents: number; note: string | null }
-  | { kind: "transfer"; accountId: string; toAccountId: string; date: IsoDate; place: string; amountCents: number; note: string | null };
+  | {
+      kind: "transfer";
+      accountId: string;
+      toAccountId: string;
+      date: IsoDate;
+      place: string;
+      amountCents: number;
+      note: string | null;
+      /** Ligne existante de l'autre compte à convertir en moitié de ce virement */
+      linkId?: string | null;
+    };
 
 /** Ligne valide → élément envoyé au serveur (un virement garde toujours source → destination). */
-export function draftToItem(d: DraftRow, accountId: string): ImportItem {
+export function draftToItem(d: DraftRow, accountId: string, linkId: string | null = null): ImportItem {
   const amountCents = Math.abs(parseImportAmount(d.amount) ?? 0);
   const place = d.label.trim();
   if (isTransferType(d.type)) {
@@ -497,6 +539,7 @@ export function draftToItem(d: DraftRow, accountId: string): ImportItem {
       place: place || "Virement",
       amountCents,
       note: null,
+      linkId,
     };
   }
   return {

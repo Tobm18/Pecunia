@@ -38,8 +38,8 @@ export default function ForgotPasswordPage() {
           <FieldError>{error}</FieldError>
         </div>
         {sent && <Banner tone="success">On t&apos;envoie un lien de réinitialisation valable 30 minutes</Banner>}
-        <Button type="submit" variant="primary" disabled={pending} className="w-full">
-          Envoyer le lien
+        <Button type="submit" variant="primary" loading={pending} className="w-full">
+          {pending ? "Envoi…" : "Envoyer le lien"}
         </Button>
         <Link href="/login" className="text-sm font-bold text-accent-700">
           ← Retour à la connexion

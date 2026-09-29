@@ -101,7 +101,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <TriangleAlert size={15} />
               {overs.length > 0 && `${overs.join(" et ")} au-dessus du budget. `}
               {warns.map((w) => `${w.category.name} à ${formatPercent(w.ratio, 0)}`).join(", ")}
-              {warns.length > 0 && " — seuil de 80 % franchi."}
+              {warns.length > 0 && " - seuil de 80 % franchi."}
             </span>
           </Banner>
         </div>
@@ -211,7 +211,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <Card>
           <CardHeader title="Répartition des dépenses" />
           {breakdown.length === 0 ? (
-            <EmptyState>Aucune dépense sur ce compte — les virements ne comptent pas</EmptyState>
+            <EmptyState>Aucune dépense sur ce compte - les virements ne comptent pas</EmptyState>
           ) : (
             <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start">
               <DonutChart

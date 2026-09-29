@@ -12,6 +12,7 @@ import {
   draftToItem,
   extractRows,
   fileBalances,
+  findTransferLinks,
   guessColumns,
   guessTransferAccount,
   matchExisting,
@@ -134,9 +135,9 @@ describe("virements devinés et lignes déjà enregistrées", () => {
 
   it("repère une ligne existante : même jour, ou ±3 jours pour un virement", () => {
     const existing: ExistingLine[] = [
-      { id: "e1", date: "2026-01-18", amountCents: -5800, type: "transfer", place: "livret A : essence", counterpartAccountId: "cc" },
-      { id: "e2", date: "2026-01-03", amountCents: 75000, type: "transfer", place: "vers livretA", counterpartAccountId: "cc" },
-      { id: "e3", date: "2026-02-02", amountCents: -2000, type: "out", place: "cadeau", counterpartAccountId: null },
+      { id: "e1", accountId: "la", date: "2026-01-18", amountCents: -5800, type: "transfer", place: "livret A : essence", counterpartAccountId: "cc" },
+      { id: "e2", accountId: "la", date: "2026-01-03", amountCents: 75000, type: "transfer", place: "vers livretA", counterpartAccountId: "cc" },
+      { id: "e3", accountId: "la", date: "2026-02-02", amountCents: -2000, type: "out", place: "cadeau", counterpartAccountId: null },
     ];
     const matches = matchExisting(
       [
@@ -201,7 +202,7 @@ describe("brouillon et plan d'import", () => {
       account: accounts[0]!,
       accounts,
       categorizer,
-      existing: [{ id: "x", date: "2026-01-03", amountCents: -75000, type: "transfer", place: "vers livretA", counterpartAccountId: "la" }],
+      existing: [{ id: "x", accountId: "cc", date: "2026-01-03", amountCents: -75000, type: "transfer", place: "vers livretA", counterpartAccountId: "la" }],
     });
     expect(withExisting.find((d) => d.label === "vers livretA")).toMatchObject({ include: false, existing: { date: "2026-01-03" } });
     expect(withExisting.filter((d) => !d.include)).toHaveLength(1);
@@ -230,5 +231,46 @@ describe("brouillon et plan d'import", () => {
 describe("dedupeKey", () => {
   it("ignore casse, accents et espaces du libellé", () => {
     expect(dedupeKey("cc", "2026-01-01", -500, " Noël ")).toBe(dedupeKey("cc", "2026-01-01", -500, "noel"));
+  });
+});
+
+describe("virements reliés à une ligne existante de l'autre compte", () => {
+  const categorizer = createCategorizer(categories, []);
+  // Import du livret après le courant : le courant contient déjà « recharge » +100 € en simple entrée
+  const livret = load(
+    ["Raison;Date;Recette;Depense;Total", "recharge compte courant;23/06/2026;;100,00 €;900,00 €", "recharge compte courant;30/06/2026;;10,00 €;890,00 €"].join("\n"),
+    1,
+  ).rows;
+  const drafts = buildDrafts({ rows: livret, account: accounts[1]!, accounts, categorizer, existing: [] });
+  const otherLines: ExistingLine[] = [
+    { id: "cc-recharge-100", accountId: "cc", date: "2026-06-23", amountCents: 10000, type: "in", place: "recharge", counterpartAccountId: null },
+    { id: "cc-virement-10", accountId: "cc", date: "2026-06-30", amountCents: 1000, type: "transfer", place: "livret", counterpartAccountId: "la" },
+    { id: "es-100", accountId: "es", date: "2026-06-23", amountCents: 10000, type: "in", place: "autre compte", counterpartAccountId: null },
+  ];
+
+  it("relie le virement à l'entrée déjà saisie sur le compte courant (pas de doublon)", () => {
+    const links = findTransferLinks(drafts, otherLines);
+    expect(links.get(drafts[0]!.key)?.id).toBe("cc-recharge-100");
+    // une ligne déjà virement n'est jamais reliée ; un autre compte non plus
+    expect(links.has(drafts[1]!.key)).toBe(false);
+    expect(draftToItem(drafts[0]!, "la", links.get(drafts[0]!.key)!.id)).toMatchObject({
+      kind: "transfer",
+      accountId: "la",
+      toAccountId: "cc",
+      amountCents: 10000,
+      linkId: "cc-recharge-100",
+    });
+  });
+
+  it("n'utilise une ligne existante qu'une fois et ignore les lignes exclues", () => {
+    const twice = [drafts[0]!, { ...drafts[0]!, key: "copie" }];
+    expect(findTransferLinks(twice, otherLines).size).toBe(1);
+    expect(findTransferLinks([{ ...drafts[0]!, include: false }], otherLines).size).toBe(0);
+  });
+
+  it("accepte ±3 jours et exige un montant opposé exact", () => {
+    expect(findTransferLinks([{ ...drafts[0]!, date: "2026-06-25" }], otherLines).size).toBe(1);
+    expect(findTransferLinks([{ ...drafts[0]!, date: "2026-06-27" }], otherLines).size).toBe(0);
+    expect(findTransferLinks([{ ...drafts[0]!, amount: "99,99" }], otherLines).size).toBe(0);
   });
 });

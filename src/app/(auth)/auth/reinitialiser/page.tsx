@@ -30,8 +30,10 @@ export default function ResetPasswordPage() {
       return setExpired(true);
     }
     const { error: updateError } = await supabase.auth.updateUser({ password });
-    setPending(false);
-    if (updateError) return setError("Impossible de changer le mot de passe, réessaie dans un instant.");
+    if (updateError) {
+      setPending(false);
+      return setError("Impossible de changer le mot de passe, réessaie dans un instant.");
+    }
     router.replace("/");
     router.refresh();
   }
@@ -58,8 +60,8 @@ export default function ResetPasswordPage() {
           <Input id="confirm" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
           <FieldError>{error}</FieldError>
         </div>
-        <Button type="submit" variant="primary" disabled={pending} className="w-full">
-          Enregistrer
+        <Button type="submit" variant="primary" loading={pending} className="w-full">
+          {pending ? "Enregistrement…" : "Enregistrer"}
         </Button>
       </form>
     </AuthShell>

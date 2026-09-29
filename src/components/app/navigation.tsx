@@ -24,6 +24,8 @@ import { formatCents } from "@/lib/domain/money";
 import { Modal } from "@/components/ui/overlay";
 import { useAppData } from "./app-data";
 import { QuickEntryForm } from "@/components/entry/quick-entry-form";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { AppVersion } from "./app-version";
 
 interface NavItem {
   href: string;
@@ -98,11 +100,12 @@ export function Sidebar() {
             <p className="truncate text-[11px] text-n-600">{profile.email}</p>
           </div>
           <form action={signOut}>
-            <button type="submit" className="rounded-lg p-2 text-n-600 hover:bg-n-200" aria-label="Se déconnecter">
+            <SubmitButton className="flex items-center rounded-lg p-2 text-n-600 hover:bg-n-200" aria-label="Se déconnecter" pendingChildren={null}>
               <LogOut size={16} />
-            </button>
+            </SubmitButton>
           </form>
         </div>
+        <AppVersion className="px-1" />
       </div>
     </aside>
   );
@@ -191,13 +194,13 @@ export function MoreMenu() {
             </Link>
           ))}
           <form action={signOut} className="mt-2 border-t border-divider pt-2">
-            <button
-              type="submit"
+            <SubmitButton
               className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 font-semibold text-danger-700 hover:bg-danger-100"
+              pendingChildren="Déconnexion…"
             >
               <LogOut size={19} />
               Se déconnecter
-            </button>
+            </SubmitButton>
           </form>
         </nav>
       </Modal>

@@ -33,12 +33,14 @@ export function BudgetEditButton({
   const [value, setValue] = useState(amountCents === null ? "" : centsToInput(amountCents).replace(/,00$/, ""));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [action, setAction] = useState<"save" | "delete" | null>(null);
 
   const parsed = parseAmountToCents(value);
   const preview = mode === "percent" && parsed !== null ? Math.round((referenceIncomeCents * parsed) / 10000) : null;
 
   function save(amount: string) {
     setError(null);
+    setAction(amount ? "save" : "delete");
     startTransition(async () => {
       const r = await saveBudget({ categoryId, mode, amount });
       if (!r.ok) return setError(r.error);
@@ -62,15 +64,15 @@ export function BudgetEditButton({
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={`Budget — ${categoryName}`}
+        title={`Budget - ${categoryName}`}
         footer={
           <>
             {amountCents !== null && (
-              <Button onClick={() => save("")} disabled={pending} className="mr-auto">
+              <Button onClick={() => save("")} loading={pending && action === "delete"} disabled={pending} className="mr-auto">
                 Supprimer le budget
               </Button>
             )}
-            <Button variant="primary" onClick={() => save(value)} disabled={parsed === null || pending}>
+            <Button variant="primary" onClick={() => save(value)} loading={pending && action === "save"} disabled={parsed === null || pending}>
               Enregistrer
             </Button>
           </>
@@ -156,7 +158,7 @@ export function BudgetSettings({
         <Label htmlFor="ref-income">Revenu de référence (budgets en %)</Label>
         <div className="flex gap-2">
           <Input id="ref-income" inputMode="decimal" value={income} onChange={(e) => setIncome(sanitizeAmountInput(e.target.value))} />
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" loading={pending}>
             OK
           </Button>
         </div>
