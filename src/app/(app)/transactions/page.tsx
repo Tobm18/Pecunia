@@ -27,9 +27,14 @@ export default async function TransactionsPage({
           <p className="text-[11px] font-bold uppercase tracking-wider text-n-600">Historique</p>
           <h1 className="text-3xl font-extrabold md:text-4xl">Transactions</h1>
         </div>
-        <Link href="/saisie" className={buttonClass("primary", "hidden md:inline-flex")}>
-          + Nouvelle saisie
-        </Link>
+        <div className="flex gap-2">
+          <Link href={initialAccount ? `/import?compte=${initialAccount}` : "/import"} className={buttonClass("secondary")}>
+            Importer un CSV
+          </Link>
+          <Link href="/saisie" className={buttonClass("primary", "hidden md:inline-flex")}>
+            + Nouvelle saisie
+          </Link>
+        </div>
       </div>
       <MonthSwitcher path="/transactions" month={month} current={current} params={{ compte: initialAccount }} />
       <TransactionsView key={month} transactions={txs} initialAccount={initialAccount} />

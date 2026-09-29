@@ -79,6 +79,11 @@ export function SettingsForm({ profile }: { profile: Profile }) {
       <Card>
         <h2 className="text-[11px] font-bold uppercase tracking-wider text-n-700">Données</h2>
         <div className="divide-y divide-divider">
+          <Row label="Importer un CSV" hint="Historique d'un compte (tableur, export bancaire)">
+            <a href="/import" className="inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-n-300 px-3 text-sm font-semibold hover:bg-n-100">
+              Importer
+            </a>
+          </Row>
           <Row label="Export CSV" hint="Toutes les transactions, lisible dans Excel">
             <a href="/api/export/csv" className="inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-n-300 px-3 text-sm font-semibold hover:bg-n-100">
               <Download size={15} /> CSV
