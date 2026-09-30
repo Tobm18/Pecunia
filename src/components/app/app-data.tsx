@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import type { Account, Category, PlaceMemoryEntry, Profile } from "@/lib/domain/types";
+import type { Account, Category, ForecastItem, PlaceMemoryEntry, Profile, Recurrence } from "@/lib/domain/types";
 
 export interface AppDataInput {
   profile: Profile;
@@ -10,6 +10,9 @@ export interface AppDataInput {
   /** Solde courant par id de compte, en centimes */
   balances: Record<string, number>;
   placeMemory: PlaceMemoryEntry[];
+  recurrences: Recurrence[];
+  /** Dépenses / revenus ponctuels prévus, non encore liés */
+  forecastItems: ForecastItem[];
 }
 
 export interface AppData extends AppDataInput {

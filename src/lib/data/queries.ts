@@ -3,8 +3,8 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_ACCOUNT, DEFAULT_CATEGORIES } from "@/lib/domain/defaults";
-import type { Account, Budget, Category, PlaceMemoryEntry, Profile, Transaction } from "@/lib/domain/types";
-import { toAccount, toBudget, toCategory, toPlaceMemory, toProfile, toTransaction } from "./mappers";
+import type { Account, Budget, Category, ForecastItem, Goal, PlaceMemoryEntry, Profile, Recurrence, Transaction } from "@/lib/domain/types";
+import { toAccount, toBudget, toCategory, toForecastItem, toGoal, toPlaceMemory, toProfile, toRecurrence, toTransaction } from "./mappers";
 
 /**
  * Couche de lecture côté serveur. Toute la dépendance à Supabase est confinée ici et dans
@@ -137,27 +137,53 @@ export async function getTransactions(query: TransactionQuery = {}): Promise<Tra
   return rows;
 }
 
+export const getRecurrences = cache(async (): Promise<Recurrence[]> => {
+  const { supabase } = await getSession();
+  const { data, error } = await supabase.from("recurrences").select("*").order("label");
+  if (error) throw error;
+  return data.map(toRecurrence);
+});
+
+export const getForecastItems = cache(async (): Promise<ForecastItem[]> => {
+  const { supabase } = await getSession();
+  const { data, error } = await supabase.from("forecast_items").select("*").order("date");
+  if (error) throw error;
+  return data.map(toForecastItem);
+});
+
+export const getGoals = cache(async (): Promise<Goal[]> => {
+  const { supabase } = await getSession();
+  const { data, error } = await supabase.from("goals").select("*").order("target_date");
+  if (error) throw error;
+  return data.map(toGoal);
+});
+
 /** Données communes à toutes les pages de l'application (layout). */
 export const getAppData = cache(async () => {
   // Le profil d'abord : sa création initialise aussi comptes et catégories.
   const profile = await getProfile();
-  const [accounts, categories, balances, placeMemory] = await Promise.all([
+  const [accounts, categories, balances, placeMemory, recurrences, forecastItems] = await Promise.all([
     getAccounts(),
     getCategories(),
     getBalances(),
     getPlaceMemory(),
+    getRecurrences(),
+    getForecastItems(),
   ]);
-  return { profile, accounts, categories, balances, placeMemory };
+  return { profile, accounts, categories, balances, placeMemory, recurrences, forecastItems };
 });
 
 /** Idem, sérialisable pour les composants clients (Map → objet). */
 export const getClientAppData = cache(async () => {
-  const { profile, accounts, categories, balances, placeMemory } = await getAppData();
+  const { profile, accounts, categories, balances, placeMemory, recurrences, forecastItems } = await getAppData();
   return {
     profile,
     accounts,
     categories,
     balances: Object.fromEntries([...balances].map(([id, b]) => [id, b.balanceCents])),
     placeMemory,
+    recurrences,
+    // seules les dépenses prévues non liées servent au rapprochement de la saisie
+    forecastItems: forecastItems.filter((f) => f.status === "planned"),
   };
 });

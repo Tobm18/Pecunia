@@ -1,5 +1,5 @@
 /** Conversion lignes SQL (snake_case) ↔ objets métier (camelCase). */
-import type { Account, Budget, Category, PlaceMemoryEntry, Profile, Transaction } from "@/lib/domain/types";
+import type { Account, Budget, Category, ForecastItem, Goal, PlaceMemoryEntry, Profile, Recurrence, Transaction } from "@/lib/domain/types";
 
 // bigint Postgres → number JS : sûr jusqu'à 2^53 centimes (~90 000 milliards d'euros)
 const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
@@ -84,4 +84,37 @@ export const transactionToRow = (t: Omit<Transaction, "id" | "createdAt" | "recu
   note: t.note,
   counterpart_account_id: t.counterpartAccountId,
   transfer_id: t.transferId,
+});
+
+export const toRecurrence = (r: Row): Recurrence => ({
+  id: r.id,
+  type: r.type,
+  label: r.label,
+  amountCents: num(r.amount_cents),
+  categoryId: r.category_id,
+  accountId: r.account_id,
+  toAccountId: r.to_account_id,
+  frequency: r.frequency,
+  dueDay: r.due_day,
+  startDate: r.start_date,
+  endDate: r.end_date,
+  isSubscription: r.is_subscription,
+});
+
+export const toForecastItem = (r: Row): ForecastItem => ({
+  id: r.id,
+  accountId: r.account_id,
+  label: r.label,
+  amountCents: num(r.amount_cents),
+  date: r.date,
+  status: r.status,
+  linkedTransactionId: r.linked_transaction_id,
+});
+
+export const toGoal = (r: Row): Goal => ({
+  id: r.id,
+  accountId: r.account_id,
+  name: r.name,
+  targetCents: num(r.target_cents),
+  targetDate: r.target_date,
 });

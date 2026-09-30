@@ -68,14 +68,29 @@ async function budgetAlertFor(row: Omit<Transaction, "id" | "createdAt" | "recur
   return crossing ? { categoryName: category.name, ...crossing } : null;
 }
 
-export async function createEntry(input: EntryInput): Promise<ActionResult<CreatedEntry>> {
+/**
+ * Crée une saisie. `linkForecastId` : dépense prévue à rapprocher (bouton « Lier ») ;
+ * elle passe à « réalisée » et n'est plus comptée dans le prévisionnel.
+ */
+export async function createEntry(input: EntryInput, linkForecastId: string | null = null): Promise<ActionResult<CreatedEntry>> {
   const { supabase, user } = await getSession();
   const accounts = (await getAccounts()).filter((a) => !a.archivedAt);
   const built = buildEntry(input, accounts, () => crypto.randomUUID());
   if (!built.ok) return fail(built.error);
 
-  const { error } = await supabase.from("transactions").insert(built.rows.map((r) => transactionToRow(r, user.id)));
+  const { data: inserted, error } = await supabase
+    .from("transactions")
+    .insert(built.rows.map((r) => transactionToRow(r, user.id)))
+    .select("id");
   if (error) return fail(GENERIC_ERROR);
+
+  if (linkForecastId && uuid.safeParse(linkForecastId).success && inserted?.[0]) {
+    await supabase
+      .from("forecast_items")
+      .update({ status: "linked", linked_transaction_id: inserted[0].id })
+      .eq("id", linkForecastId)
+      .eq("status", "planned");
+  }
 
   const first = built.rows[0]!;
   const budgetAlert = await budgetAlertFor(first).catch(() => null);

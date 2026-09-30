@@ -26,7 +26,7 @@ npm run dev                  # http://localhost:3000
 ### Mise en place de Supabase
 
 1. Créer un projet sur [supabase.com](https://supabase.com), région UE.
-2. **SQL Editor** : coller **tout** le fichier `supabase/migrations/20260928000000_init.sql`, sans rien sélectionner (sinon seule la sélection est exécutée), puis « Run ». Le script peut être relancé sans risque. Autre option, avec la CLI : `supabase link` puis `supabase db push`.
+2. **SQL Editor** : exécuter, dans l'ordre, chaque fichier de `supabase/migrations/` (`20260928000000_init.sql`, puis `20260930000000_delete_account.sql`). Coller **tout** le fichier, sans rien sélectionner (sinon seule la sélection est exécutée), puis « Run ». Le script peut être relancé sans risque. Autre option, avec la CLI : `supabase link` puis `supabase db push`.
 3. **Authentication → URL Configuration** :
    - Site URL : `http://localhost:3000` (puis l'URL de production) ;
    - Redirect URLs : `http://localhost:3000/auth/callback` (et l'équivalent en production).
@@ -100,11 +100,17 @@ Un fichier par compte. Le format de référence est celui du tableur (`Raison;Da
 
 Conseil : importer d'abord le compte courant (les virements vers l'épargne créent aussi leur ligne côté épargne), puis le livret. Au 2e import, ces virements apparaissent comme « Déjà présentes ».
 
-### Évolutions (v2)
+### Évolutions (v2) - livrées
 
-- [ ] Modèles rapides (loyer, salaire, abonnements). Le « Tableau vide » de l'import sert déjà de saisie en lot
-- [ ] Récurrences (tables prêtes) et rapprochement avec le prévisionnel
-- [ ] Prévisionnel : solde projeté par compte, alertes de solde négatif
-- [ ] Objectifs d'épargne (table prête)
-- [ ] Analyses : comparaisons mensuelles, classement des lieux, évolution du patrimoine
-- [ ] Passkey (WebAuthn), suppression du compte utilisateur, glisser pour supprimer (mobile), mode hors connexion
+- [x] **Récurrences** (`/recurrences`) : loyer, salaire, abonnements, virements programmés ; fréquence hebdo / mensuelle / trimestrielle / annuelle ; échéances à venir avec bascule ✓ (crée ou retire la transaction liée) ; **rapprochement automatique** des transactions déjà saisies ou importées (libellé proche, montant ±10 %) ; coût mensuel et annuel des abonnements
+- [x] **Modèles rapides** dans la saisie : une puce par récurrence active, qui pré-remplit tout le formulaire
+- [x] **Prévisionnel** (`/prevision`) : solde projeté fin de mois par compte sur 1 / 3 / 6 / 12 mois (échéances non réalisées + dépenses prévues − dépenses courantes estimées d'après les budgets, hors part couverte par une récurrence), courbe par compte, alertes de solde négatif, dépenses / revenus ponctuels prévus
+- [x] **Rapprochement à la saisie** : une saisie qui correspond à une dépense prévue propose « Lier » (elle passe à « réalisée ») ou « Ignorer »
+- [x] **Objectifs d'épargne** (écran Comptes et détail du compte) : progression, statut « En avance » / « En retard » selon les virements récurrents programmés, manque à l'échéance
+- [x] **Analyses** (`/analyses`) : taux d'épargne, patrimoine sur 12 mois, épargne cumulée par compte (virements / intérêts), comparaison avec le mois précédent, évolution d'une catégorie, classement des lieux
+- [x] Tableau de bord : bloc **« À venir »** (5 prochaines échéances et dépenses prévues)
+- [x] **Suppression du compte utilisateur** (Paramètres), confirmée par l'email ou « SUPPRIMER » ; nécessite la migration `20260930000000_delete_account.sql`
+
+### Restant
+
+- [ ] Passkey (WebAuthn), glisser pour supprimer (mobile), mode hors connexion

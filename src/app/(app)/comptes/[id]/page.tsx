@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getAppData, getTransactions } from "@/lib/data/queries";
+import { getAppData, getGoals, getTransactions } from "@/lib/data/queries";
+import { goalStatus } from "@/lib/domain/goals";
+import { todayIso } from "@/lib/domain/dates";
 import { resolveMonth } from "@/lib/data/views";
 import { isInPeriod, lastMonths, monthAbbr, monthName, monthPeriod, numericDate } from "@/lib/domain/dates";
 import { ACCOUNT_TYPE_LABELS } from "@/lib/domain/defaults";
@@ -11,11 +13,12 @@ import { BalanceArea } from "@/components/charts/charts";
 import { IconBadge } from "@/components/ui/icons";
 import { Card, Chip, EmptyState } from "@/components/ui/primitives";
 import { AccountSettings, AdjustBalanceButton } from "@/components/accounts/account-dialogs";
+import { GoalCard } from "@/components/accounts/goals-section";
 import { AccountTransactions } from "./account-transactions";
 
 export default async function AccountDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { profile, accounts, balances } = await getAppData();
+  const [{ profile, accounts, balances, recurrences }, goals] = await Promise.all([getAppData(), getGoals()]);
   const account = accounts.find((a) => a.id === id);
   if (!account) notFound();
 
@@ -98,6 +101,11 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
               ))}
             </dl>
           </Card>
+          {goals
+            .filter((g) => g.accountId === account.id)
+            .map((g) => (
+              <GoalCard key={g.id} status={goalStatus(g, balance, recurrences, todayIso())} />
+            ))}
           {!account.archivedAt && (
             <Card>
               <AccountSettings account={account} balanceCents={balance} />
