@@ -123,7 +123,7 @@ export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
       </Button>
       <FieldError>{error}</FieldError>
       {info && <Banner tone="success">{info}</Banner>}
-      <div className="flex items-center gap-3 text-xs text-n-500">
+      <div className="flex items-center gap-3 text-xs text-n-600">
         <span className="h-px flex-1 bg-divider" />
         ou
         <span className="h-px flex-1 bg-divider" />

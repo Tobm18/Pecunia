@@ -68,10 +68,10 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
         <Card>
-          <div className="flex items-start justify-between gap-3">
-            <div>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
               <p className="text-sm font-semibold text-n-700">Solde actuel</p>
               <p className="text-4xl font-extrabold tabular-nums">{formatCents(balance)}</p>
             </div>
@@ -114,10 +114,10 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <h2 className="text-lg font-extrabold">Transactions du compte</h2>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-n-600">{monthTxs.length} ce mois-ci</span>
+          <span className="whitespace-nowrap text-xs text-n-600">{monthTxs.length} ce mois-ci</span>
           {!account.archivedAt && (
             <Link href={`/import?compte=${account.id}`} className="text-xs font-bold text-accent-700 hover:text-accent">
               Importer un CSV

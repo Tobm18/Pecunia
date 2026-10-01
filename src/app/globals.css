@@ -19,7 +19,7 @@
   --n-300: #dde1e7;
   --n-400: #c2c8d2;
   --n-500: #98a1b0;
-  --n-600: #737d8d;
+  --n-600: #636c7b; /* texte secondaire : ≥ 4,5:1 sur blanc et sur le fond */
   --n-700: #586274;
   --n-800: #3b4454;
   --n-900: #252c38;
@@ -29,6 +29,9 @@
   --danger: #e5574f;
   --danger-100: #fdecea;
   --danger-700: #b8322b;
+  --danger-solid: #c43d35; /* fond des boutons / toasts d'erreur, texte blanc ≥ 4,5:1 */
+  --on-accent: #ffffff; /* texte et icônes posés sur l'accent */
+  --on-warn: #1d2433; /* texte posé sur l'orange d'alerte */
   --ink: #1d2433; /* puces actives, fond sombre des sélections */
   --on-ink: #ffffff;
   --shadow-sm: 0 1px 2px rgba(29, 36, 51, 0.05), 0 1px 3px rgba(29, 36, 51, 0.06);
@@ -52,7 +55,7 @@
   --n-200: #222935;
   --n-300: #2e3644;
   --n-400: #465063;
-  --n-500: #6b7588;
+  --n-500: #838da0; /* ≥ 4,5:1 sur la surface sombre */
   --n-600: #8d96a7;
   --n-700: #aab2c0;
   --n-800: #cdd3dc;
@@ -61,6 +64,8 @@
   --warn-800: #f3c77a;
   --danger-100: #3b1c1b;
   --danger-700: #f08a84;
+  /* l'accent clair du thème sombre impose un texte foncé (blanc : 2,9:1) */
+  --on-accent: #0b1f1b;
   --ink: #e8ebf0;
   --on-ink: #11151c;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -76,6 +81,9 @@
   --color-text: var(--text);
   --color-divider: var(--divider);
   --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-on-warn: var(--on-warn);
+  --color-danger-solid: var(--danger-solid);
   --color-accent-100: var(--accent-100);
   --color-accent-200: var(--accent-200);
   --color-accent-500: var(--accent-500);

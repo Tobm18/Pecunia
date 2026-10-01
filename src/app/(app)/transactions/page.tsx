@@ -31,7 +31,7 @@ export default async function TransactionsPage({
           <Link href={initialAccount ? `/import?compte=${initialAccount}` : "/import"} className={buttonClass("secondary")}>
             Importer un CSV
           </Link>
-          <Link href="/saisie" className={buttonClass("primary", "hidden md:inline-flex")}>
+          <Link href="/saisie" className={buttonClass("primary", "max-md:hidden")}>
             + Nouvelle saisie
           </Link>
         </div>

@@ -5,7 +5,7 @@ import { AppVersion } from "@/components/app/app-version";
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
-      <div className="m-4 flex flex-col justify-between rounded-[22px] bg-accent p-7 text-white md:m-0 md:w-1/2 md:rounded-none md:p-10">
+      <div className="m-4 flex flex-col justify-between rounded-[22px] bg-accent p-7 text-on-accent md:m-0 md:w-1/2 md:rounded-none md:p-10">
         <p className="text-lg font-bold">Pecunia</p>
         <p className="mt-8 text-5xl leading-[1.02] font-extrabold md:text-6xl">
           Chaque euro

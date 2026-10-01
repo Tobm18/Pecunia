@@ -198,7 +198,7 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
               <span className="text-xs font-bold capitalize">{monthAbbr(m.month)}</span>
               <span className={clsx("text-sm font-extrabold tabular-nums", negative && "text-danger-700")}>{formatCentsCompact(end)}</span>
               {pending > 0 && (
-                <span className="absolute -right-1.5 -top-1.5 grid min-w-5 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-white">
+                <span className="absolute -right-1.5 -top-1.5 grid min-w-5 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-on-warn">
                   {pending}
                 </span>
               )}

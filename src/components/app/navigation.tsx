@@ -77,14 +77,14 @@ export function Sidebar() {
   return (
     <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-divider bg-surface px-3 py-5 lg:flex">
       <Link href="/" className="mb-6 flex items-center gap-2 px-2.5 text-lg font-extrabold">
-        <span className="flex size-6 items-center justify-center rounded-md bg-accent text-xs text-white">P</span>
+        <span className="flex size-6 items-center justify-center rounded-md bg-accent text-xs text-on-accent">P</span>
         Pecunia
       </Link>
       <nav className="flex flex-col gap-0.5" aria-label="Navigation principale">
         {MAIN.map((item) => (
           <SidebarLink key={item.href} item={item} pathname={pathname} />
         ))}
-        <p className="mt-5 mb-1 px-2.5 text-[10px] font-bold uppercase tracking-wider text-n-500">Gestion</p>
+        <p className="mt-5 mb-1 px-2.5 text-[10px] font-bold uppercase tracking-wider text-n-600">Gestion</p>
         {MANAGEMENT.map((item) => (
           <SidebarLink key={item.href} item={item} pathname={pathname} />
         ))}
@@ -144,7 +144,7 @@ export function BottomNav() {
           <button
             type="button"
             onClick={() => setEntryOpen(true)}
-            className="-mt-6 mb-2 flex size-14 items-center justify-center rounded-2xl bg-accent text-white shadow-pop ring-4 ring-bg"
+            className="-mt-6 mb-2 flex size-14 items-center justify-center rounded-2xl bg-accent text-on-accent shadow-pop ring-4 ring-bg"
             aria-label="Nouvelle saisie"
           >
             <Plus size={28} strokeWidth={2.4} />

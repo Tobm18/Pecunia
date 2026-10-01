@@ -9,10 +9,10 @@ type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export function buttonClass(variant: ButtonVariant = "secondary", extra?: string) {
   return clsx(
     "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] px-3.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45 md:min-h-9",
-    variant === "primary" && "bg-accent text-white hover:bg-accent-600",
+    variant === "primary" && "bg-accent text-on-accent hover:bg-accent-600",
     variant === "secondary" && "border border-n-300 bg-surface text-text hover:bg-n-100",
     variant === "ghost" && "text-accent-700 hover:bg-accent-100",
-    variant === "danger" && "bg-danger text-white hover:bg-danger-700",
+    variant === "danger" && "bg-danger-solid text-white hover:brightness-110",
     extra,
   );
 }

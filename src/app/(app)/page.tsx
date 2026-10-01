@@ -142,7 +142,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <MonthSwitcher path="/" month={month} current={current} params={{ compte: accountId }} />
           <div className="flex min-w-0 items-center gap-3">
             <AccountChips path="/" accounts={activeAccounts} selected={accountId} params={{ mois: params.mois }} />
-            <Link href="/saisie" className={buttonClass("primary", "hidden md:inline-flex")}>
+            <Link href="/saisie" className={buttonClass("primary", "max-md:hidden")}>
               + Nouvelle saisie
             </Link>
           </div>
@@ -201,7 +201,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <Kpi icon={<PiggyBank size={14} />} label="Épargné ce mois-ci" value={formatCents(summary.savedCents)} sub="Virements vers l'épargne + intérêts" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader title="Mes comptes" action={<Link href="/comptes" className={cardLink}>Gérer</Link>} />
           <p className="mb-3 flex items-baseline gap-2">
@@ -262,7 +262,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader title="Répartition des dépenses" />
           {breakdown.length === 0 ? (
@@ -298,7 +298,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader title="À venir" action={<Link href="/prevision" className={cardLink}>Prévisionnel</Link>} />
           {upcoming.length === 0 ? (
@@ -350,7 +350,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <ol className="flex flex-col gap-2.5">
               {places.map((p, i) => (
                 <li key={p.place} className="flex items-center gap-3 text-sm">
-                  <span className="w-4 text-xs text-n-500">{i + 1}</span>
+                  <span className="w-4 text-xs text-n-600">{i + 1}</span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold">{p.place}</p>
                     <div className="mt-1 h-1 rounded-full bg-accent-500" style={{ width: `${(p.cents / places[0]!.cents) * 100}%` }} />

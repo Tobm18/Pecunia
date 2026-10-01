@@ -299,7 +299,7 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
 
       {/* Étape 1 : compte + fichier */}
       <Card>
-        <div className="grid gap-4 md:grid-cols-[260px_1fr] md:items-end">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[260px_minmax(0,1fr)] md:items-end">
           <div>
             <Label htmlFor="import-account">Compte concerné</Label>
             <Select id="import-account" value={accountId} onChange={(e) => changeAccount(e.target.value)} disabled={pending}>
@@ -345,12 +345,12 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
       {file && (
         <Card>
           <h2 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-n-700">Correspondance des colonnes</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {file.parsed.header.map((h, i) => (
               <div key={i}>
                 <Label htmlFor={`col-${i}`}>
                   {h || `Colonne ${i + 1}`}{" "}
-                  <span className="text-n-500">· {file.parsed.rows[0]?.cells[i] || "-"}</span>
+                  <span className="text-n-600">· {file.parsed.rows[0]?.cells[i] || "-"}</span>
                 </Label>
                 <Select id={`col-${i}`} value={file.roles[i]} onChange={(e) => changeRole(i, e.target.value as ColumnRole)}>
                   {(Object.keys(COLUMN_ROLE_LABELS) as ColumnRole[]).map((r) => (

@@ -44,7 +44,7 @@ export function SettingsForm({ profile }: { profile: Profile }) {
     : "jamais";
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card>
         <h2 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-n-700">
           Préférences {pending && <Spinner size={12} label="Enregistrement" />}

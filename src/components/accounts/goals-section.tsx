@@ -177,7 +177,7 @@ export function GoalsSection({ statuses }: { statuses: GoalStatus[] }) {
           Aucun objectif. Fixe un montant et une date (voyage, fonds d&apos;urgence…) pour suivre ta progression.
         </p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {statuses.map((s) => (
             <GoalCard key={s.goal.id} status={s} onClick={() => setEditing({ goal: s.goal, key: Date.now() })} />
           ))}

@@ -32,7 +32,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
         </Banner>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Card>
           <p className="text-sm font-semibold text-n-700">Reste à dépenser</p>
           <p className={`text-4xl font-extrabold tabular-nums ${overview.remainingCents < 0 ? "text-danger-700" : "text-accent-700"}`}>

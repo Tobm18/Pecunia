@@ -43,7 +43,7 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
   return (
     <>
       <div className="flex flex-col gap-3 md:rounded-card md:bg-surface md:p-4 md:shadow-card">
-        <div className="grid gap-3 md:grid-cols-[1fr_200px]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_200px]">
           <label className="relative block">
             <Search size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-n-500" />
             <input
