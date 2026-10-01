@@ -73,7 +73,6 @@ export function IconColorPicker({
 }
 
 export function NewAccountButton() {
-  const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -91,12 +90,13 @@ export function NewAccountButton() {
     setError(null);
     startTransition(async () => {
       const result = await createAccount({ name, type, initialBalance: balance, initialBalanceDate: date, color, icon, today: todayIso() });
-      if (!result.ok) return setError(result.error);
-      toast(`Compte « ${name.trim()} » créé`);
-      setOpen(false);
-      setName("");
-      setBalance("");
-      router.refresh();
+      startTransition(() => {
+        if (!result.ok) return setError(result.error);
+        toast(`Compte « ${name.trim()} » créé`);
+        setOpen(false);
+        setName("");
+        setBalance("");
+      });
     });
   }
 
@@ -168,7 +168,9 @@ export function RestoreAccountButton({ id }: { id: string }) {
       onClick={() =>
         startTransition(async () => {
           const r = await setAccountArchived(id, false);
-          toast(r.ok ? "Compte restauré" : r.error, r.ok ? "success" : "error");
+          startTransition(() => {
+            toast(r.ok ? "Compte restauré" : r.error, r.ok ? "success" : "error");
+          });
         })
       }
     >
@@ -191,9 +193,11 @@ export function AdjustBalanceButton({ account, balanceCents }: { account: Accoun
     if (real === null) return;
     startTransition(async () => {
       const result = await adjustBalance(account.id, value, todayIso());
-      if (!result.ok) return setError(result.error);
-      if (result.data.created) toast("Régularisation créée");
-      setOpen(false);
+      startTransition(() => {
+        if (!result.ok) return setError(result.error);
+        if (result.data.created) toast("Régularisation créée");
+        setOpen(false);
+      });
     });
   }
 
@@ -265,13 +269,15 @@ export function AccountSettings({ account, balanceCents }: { account: Account; b
     setError(null);
     startTransition(async () => {
       const r = await action();
-      if (!r.ok) {
-        setError(r.error ?? null);
-        toast(r.error ?? "Erreur", "error");
-        return;
-      }
-      toast(success);
-      after?.();
+      startTransition(() => {
+        if (!r.ok) {
+          setError(r.error ?? null);
+          toast(r.error ?? "Erreur", "error");
+          return;
+        }
+        toast(success);
+        after?.();
+      });
     });
   }
 

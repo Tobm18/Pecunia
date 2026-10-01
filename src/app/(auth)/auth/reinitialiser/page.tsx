@@ -23,17 +23,20 @@ export default function ResetPasswordPage() {
     if (password.length < MIN_LENGTH) return setError(`Au moins ${MIN_LENGTH} caractères.`);
     if (password !== confirm) return setError("Les deux mots de passe ne correspondent pas.");
     setPending(true);
-    const supabase = createClient();
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) {
-      setPending(false);
-      return setExpired(true);
-    }
-    const { error: updateError } = await supabase.auth.updateUser({ password });
-    if (updateError) {
+    try {
+      const supabase = createClient();
+      const { data } = await supabase.auth.getUser();
+      if (!data.user) {
+        setPending(false);
+        return setExpired(true);
+      }
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      if (updateError) throw updateError;
+    } catch {
       setPending(false);
       return setError("Impossible de changer le mot de passe, réessaie dans un instant.");
     }
+    // le spinner reste affiché jusqu'à l'arrivée sur le tableau de bord
     router.replace("/");
     router.refresh();
   }

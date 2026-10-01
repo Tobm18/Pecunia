@@ -181,14 +181,16 @@ export function QuickEntryForm({
         date,
         note,
       }, linked?.id ?? null).catch(() => ({ ok: false as const, error: "Enregistrement impossible, réessaie dans un instant." }));
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      toast(`${result.data.label} · ${result.data.amount} · ${result.data.accountName}`);
-      if (result.data.budgetAlert) setBudgetAlert(result.data.budgetAlert);
-      onCreated?.({ ...result.data, date, categoryName: categoryId ? (categoryById.get(categoryId)?.name ?? null) : null });
-      resetAfterSubmit();
+      startTransition(() => {
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        toast(`${result.data.label} · ${result.data.amount} · ${result.data.accountName}`);
+        if (result.data.budgetAlert) setBudgetAlert(result.data.budgetAlert);
+        onCreated?.({ ...result.data, date, categoryName: categoryId ? (categoryById.get(categoryId)?.name ?? null) : null });
+        resetAfterSubmit();
+      });
     });
   }
 

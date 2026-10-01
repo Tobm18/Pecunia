@@ -73,9 +73,11 @@ export function RecurrenceFormModal({
     setAction("save");
     startTransition(async () => {
       const r = await saveRecurrence(recurrence?.id ?? null, { ...draft, dueDay: Number(draft.dueDay) || 1 });
-      if (!r.ok) return setError(r.error);
-      toast(recurrence ? "Récurrence modifiée" : "Récurrence créée");
-      onClose();
+      startTransition(() => {
+        if (!r.ok) return setError(r.error);
+        toast(recurrence ? "Récurrence modifiée" : "Récurrence créée");
+        onClose();
+      });
     });
   }
 
@@ -85,9 +87,11 @@ export function RecurrenceFormModal({
     setAction("delete");
     startTransition(async () => {
       const r = await deleteRecurrence(recurrence.id);
-      if (!r.ok) return setError(r.error);
-      toast("Récurrence supprimée");
-      onClose();
+      startTransition(() => {
+        if (!r.ok) return setError(r.error);
+        toast("Récurrence supprimée");
+        onClose();
+      });
     });
   }
 

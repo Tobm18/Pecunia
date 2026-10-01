@@ -33,8 +33,9 @@ export function SettingsForm({ profile }: { profile: Profile }) {
   function save(patch: Parameters<typeof updateProfile>[0], message = "Préférence enregistrée") {
     startTransition(async () => {
       const r = await updateProfile(patch);
-      toast(r.ok ? message : r.error, r.ok ? "success" : "error");
-      if (r.ok) router.refresh();
+      startTransition(() => {
+        toast(r.ok ? message : r.error, r.ok ? "success" : "error");
+      });
     });
   }
 
@@ -92,18 +93,11 @@ export function SettingsForm({ profile }: { profile: Profile }) {
             </a>
           </Row>
           <Row label="Export CSV" hint="Toutes les transactions, lisible dans Excel">
-            <a href="/api/export/csv" className="inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-n-300 px-3 text-sm font-semibold hover:bg-n-100">
-              <Download size={15} /> CSV
-            </a>
+            <ExportButton format="csv" label="CSV" />
           </Row>
           <Row label="Sauvegarde JSON" hint={`Dernière sauvegarde : ${lastBackup}`}>
-            <a
-              href="/api/export/json"
-              onClick={() => setTimeout(() => router.refresh(), 1500)}
-              className="inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-n-300 px-3 text-sm font-semibold hover:bg-n-100"
-            >
-              <Download size={15} /> JSON
-            </a>
+            {/* la date de dernière sauvegarde est rafraîchie une fois le fichier reçu */}
+            <ExportButton format="json" label="JSON" onDone={() => router.refresh()} />
           </Row>
         </div>
       </Card>
@@ -144,6 +138,40 @@ export function SettingsForm({ profile }: { profile: Profile }) {
   );
 }
 
+/** Téléchargement d'un export : spinner jusqu'à la réception complète du fichier. */
+function ExportButton({ format, label, onDone }: { format: "csv" | "json"; label: string; onDone?: () => void }) {
+  const toast = useToast();
+  const [pending, startTransition] = useTransition();
+
+  function download() {
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/export/${format}`);
+        if (!res.ok) throw new Error(String(res.status));
+        const blob = await res.blob();
+        const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `pecunia.${format}`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        startTransition(() => onDone?.());
+      } catch {
+        toast("Export impossible, réessaie dans un instant.", "error");
+      }
+    });
+  }
+
+  return (
+    <Button onClick={download} loading={pending}>
+      {!pending && <Download size={15} />} {label}
+    </Button>
+  );
+}
+
 /** Suppression définitive : confirmation en retapant l'email ou « SUPPRIMER ». */
 function DeleteAccountButton({ email }: { email: string }) {
   const [open, setOpen] = useState(false);
@@ -156,8 +184,10 @@ function DeleteAccountButton({ email }: { email: string }) {
     setError(null);
     startTransition(async () => {
       const r = await deleteMyAccount(confirmation);
-      // en cas de succès, l'action redirige vers l'écran de connexion
-      if (r && !r.ok) setError(r.error);
+      startTransition(() => {
+        // en cas de succès, l'action redirige vers l'écran de connexion
+        if (r && !r.ok) setError(r.error);
+      });
     });
   }
 

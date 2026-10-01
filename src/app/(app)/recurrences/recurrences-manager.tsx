@@ -48,8 +48,10 @@ export function RecurrencesManager({
     setBusyKey(o.key);
     startTransition(async () => {
       const r = await setOccurrenceDone(o.recurrence.id, o.date, o.status !== "done", o.transaction?.id ?? null);
-      setBusyKey(null);
-      if (!r.ok) toast(r.error, "error");
+      startTransition(() => {
+        setBusyKey(null);
+        if (!r.ok) toast(r.error, "error");
+      });
     });
   }
 

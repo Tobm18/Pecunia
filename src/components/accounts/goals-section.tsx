@@ -81,9 +81,11 @@ export function GoalFormModal({ goal, onClose, defaultAccountId }: { goal: Goal 
     setAction("save");
     startTransition(async () => {
       const r = await saveGoal(goal?.id ?? null, { name, accountId, target, targetDate, today: todayIso() });
-      if (!r.ok) return setError(r.error);
-      toast(goal ? "Objectif modifié" : "Objectif créé");
-      onClose();
+      startTransition(() => {
+        if (!r.ok) return setError(r.error);
+        toast(goal ? "Objectif modifié" : "Objectif créé");
+        onClose();
+      });
     });
   }
 
@@ -93,9 +95,11 @@ export function GoalFormModal({ goal, onClose, defaultAccountId }: { goal: Goal 
     setAction("delete");
     startTransition(async () => {
       const r = await deleteGoal(goal.id);
-      if (!r.ok) return setError(r.error);
-      toast("Objectif supprimé");
-      onClose();
+      startTransition(() => {
+        if (!r.ok) return setError(r.error);
+        toast("Objectif supprimé");
+        onClose();
+      });
     });
   }
 

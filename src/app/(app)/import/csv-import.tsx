@@ -105,9 +105,11 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
       const dates = rows.map((r) => r.date).sort();
       startTransition(async () => {
         const lines = await getLinesInRange(dates[0]!, dates[dates.length - 1]!).catch(() => [] as ExistingLine[]);
-        setOtherLines(lines.filter((l) => l.accountId !== target.id));
-        const existing = lines.filter((l) => l.accountId === target.id);
-        setDrafts(buildDrafts({ rows, account: target, accounts: activeAccounts, categorizer, existing }));
+        startTransition(() => {
+          setOtherLines(lines.filter((l) => l.accountId !== target.id));
+          const existing = lines.filter((l) => l.accountId === target.id);
+          setDrafts(buildDrafts({ rows, account: target, accounts: activeAccounts, categorizer, existing }));
+        });
       });
     },
     [activeAccounts, categorizer],
@@ -253,14 +255,16 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
         items: summary.valid.map((d) => draftToItem(d, account.id, links.get(d.key)?.id ?? null)),
         openingBalances: setOpening && file?.opening ? [{ accountId: account.id, cents: file.opening.cents, date: file.opening.date }] : [],
       }).catch(() => ({ ok: false as const, error: "Import impossible, réessaie dans un instant." }));
-      setSubmitting(false);
-      if (!res.ok) return setSubmitError(res.error);
-      toast(`${res.inserted} transaction${res.inserted > 1 ? "s" : ""} importée${res.inserted > 1 ? "s" : ""}`);
-      setResult({ inserted: res.inserted, skipped: res.skipped, linked: res.linked, accountName: account.name, accountId: account.id });
-      setOtherLines([]);
-      setDrafts(null);
-      setFile(null);
-      if (fileInput.current) fileInput.current.value = "";
+      startTransition(() => {
+        setSubmitting(false);
+        if (!res.ok) return setSubmitError(res.error);
+        toast(`${res.inserted} transaction${res.inserted > 1 ? "s" : ""} importée${res.inserted > 1 ? "s" : ""}`);
+        setResult({ inserted: res.inserted, skipped: res.skipped, linked: res.linked, accountName: account.name, accountId: account.id });
+        setOtherLines([]);
+        setDrafts(null);
+        setFile(null);
+        if (fileInput.current) fileInput.current.value = "";
+      });
     });
   }
 

@@ -23,19 +23,23 @@ export function SignupForm() {
     if (!email.trim() || !password) return setError("Email et mot de passe requis.");
     if (password.length < MIN_LENGTH) return setError(`Mot de passe : au moins ${MIN_LENGTH} caractères.`);
     setPending(true);
-    const { data, error: signUpError } = await createClient().auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        data: { display_name: name.trim() || null },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+    const { data, error: signUpError } = await createClient()
+      .auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: { display_name: name.trim() || null },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
+      // erreur réseau : même message, et le spinner s'arrête
+      .catch((err: unknown) => ({ data: { session: null }, error: err }));
     if (signUpError) {
       setPending(false);
       return setError("Inscription impossible, vérifie l'email ou réessaie plus tard.");
     }
     if (data.session) {
+      // le spinner reste affiché jusqu'à l'arrivée sur le tableau de bord
       router.replace("/");
       router.refresh();
     } else {
