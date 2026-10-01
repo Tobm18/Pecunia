@@ -69,6 +69,11 @@ export interface NegativeAlert {
 export const recurrenceKey = (recurrenceId: string, date: IsoDate) => `rec:${recurrenceId}:${date}`;
 export const budgetKey = (categoryId: string, month: MonthKey) => `bud:${categoryId}:${month}`;
 
+/** Mouvements d'une ligne prévue sur les comptes (virement : débit et crédit). */
+export function plannedEffects(f: Pick<ForecastItem, "accountId" | "toAccountId" | "amountCents">): [string, number][] {
+  return f.toAccountId ? [[f.accountId, f.amountCents], [f.toAccountId, -f.amountCents]] : [[f.accountId, f.amountCents]];
+}
+
 /** Mouvements d'une ligne sur les comptes : [compte, montant signé]. */
 export function proposalEffects(p: Pick<Proposal, "type" | "accountId" | "toAccountId" | "amountCents">): [string, number][] {
   if (p.type === "transfer") {
@@ -179,6 +184,7 @@ export function buildForecast(params: {
 
     const planned = forecastItems
       .filter((f) => f.status === "planned" && f.date >= period.start && f.date <= period.end && activeIds.has(f.accountId))
+      .map((f) => (f.toAccountId && !activeIds.has(f.toAccountId) ? { ...f, toAccountId: null } : f))
       .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
     const perAccount: Record<string, AccountMonth> = Object.fromEntries(
@@ -198,7 +204,7 @@ export function buildForecast(params: {
         else if (p.status === "pending") pendingNet[accountId] = (pendingNet[accountId] ?? 0) + cents;
       }
     }
-    for (const f of planned) count(f.accountId, f.amountCents);
+    for (const f of planned) for (const [accountId, cents] of plannedEffects(f)) count(accountId, cents);
 
     for (const a of active) {
       const slot = perAccount[a.id]!;
@@ -248,7 +254,7 @@ export function findForecastMatch(
   const day = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86_400_000;
   return (
     items.find((f) => {
-      if (f.status !== "planned") return false;
+      if (f.status !== "planned" || f.toAccountId) return false;
       if (entry.accountId && f.accountId !== entry.accountId) return false;
       const label = normalize(f.label).replace(/[^a-z0-9]+/g, " ").trim();
       if (!label || !(label === place || label.includes(place) || place.includes(label))) return false;

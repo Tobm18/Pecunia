@@ -4,7 +4,7 @@ import { TriangleAlert } from "lucide-react";
 import { getAppData, getForecastDecisions, getTransactions } from "@/lib/data/queries";
 import { getBudgetOverview, withParams } from "@/lib/data/views";
 import { addMonths, monthAbbr, monthKeyOf, monthName, monthPeriod, todayIso } from "@/lib/domain/dates";
-import { buildForecast, proposalEffects } from "@/lib/domain/forecast";
+import { buildForecast, plannedEffects, proposalEffects } from "@/lib/domain/forecast";
 import { buildOccurrences, occurrenceWindow, signedRecurrenceCents } from "@/lib/domain/recurrences";
 import { formatCents, formatCentsCompact } from "@/lib/domain/money";
 import { AccountChips } from "@/components/app/filters";
@@ -87,20 +87,21 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
         seriesId: null,
       })),
     ...selected.planned
-      .filter((f) => shownIds.has(f.accountId))
-      .map((f): PlanLine => ({
+      .map((f) => ({ f, effects: plannedEffects(f) }))
+      .filter(({ effects }) => touches(effects))
+      .map(({ f, effects }): PlanLine => ({
         key: f.id,
         kind: "planned",
         label: f.label,
-        type: f.amountCents > 0 ? "in" : "out",
+        type: f.toAccountId ? "transfer" : f.amountCents > 0 ? "in" : "out",
         accountId: f.accountId,
-        toAccountId: null,
+        toAccountId: f.toAccountId,
         categoryId: null,
         amountCents: Math.abs(f.amountCents),
         proposedCents: Math.abs(f.amountCents),
         date: f.date,
         proposedDate: f.date,
-        viewCents: f.amountCents,
+        viewCents: viewOf(effects),
         status: "planned",
         modified: false,
         decided: true,

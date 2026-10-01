@@ -159,7 +159,7 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
             title="Retenu pour le mois"
             action={
               <Button onClick={openCreate}>
-                <Plus size={15} /> Entrée / sortie
+                <Plus size={15} /> Ajouter
               </Button>
             }
           />
@@ -431,7 +431,7 @@ function PlannedModal({
 }) {
   const { activeAccounts } = useAppData();
   const toast = useToast();
-  const [direction, setDirection] = useState<"out" | "in">(line?.type === "in" ? "in" : "out");
+  const [direction, setDirection] = useState<"out" | "in" | "transfer">(line?.type ?? "out");
   const [label, setLabel] = useState(line?.label ?? "");
   const [amount, setAmount] = useState(line ? centsToInput(line.amountCents) : "");
   const [date, setDate] = useState(line?.date ?? (today >= period.start && today <= period.end ? today : period.start));
@@ -439,12 +439,19 @@ function PlannedModal({
   const [accountId, setAccountId] = useState(
     line?.accountId ?? defaultAccountId ?? activeAccounts.find((a) => a.type === "current")?.id ?? activeAccounts[0]?.id ?? "",
   );
+  const [toAccountId, setToAccountId] = useState(
+    line?.toAccountId ?? activeAccounts.find((a) => a.id !== accountId && a.type === "savings")?.id ?? activeAccounts.find((a) => a.id !== accountId)?.id ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const cents = parseAmountToCents(amount);
   const count = Number(months);
-  const valid = label.trim() !== "" && cents !== null && cents > 0 && date !== "" && Number.isInteger(count) && count >= 1 && count <= 36;
+  const transfer = direction === "transfer";
+  const valid =
+    (label.trim() !== "" || transfer) &&
+    (!transfer || (toAccountId !== "" && toAccountId !== accountId)) &&
+    cents !== null && cents > 0 && date !== "" && Number.isInteger(count) && count >= 1 && count <= 36;
 
   function act(key: string, action: () => Promise<{ ok: true } | { ok: false; error: string }>, success: string) {
     setError(null);
@@ -458,7 +465,11 @@ function PlannedModal({
     });
   }
 
-  const input = { label, amount, direction, date, accountId, today };
+  const defaultLabel = () => {
+    const to = activeAccounts.find((a) => a.id === toAccountId);
+    return to ? `Virement vers ${to.name}` : "Virement";
+  };
+  const input = { label: transfer && !label.trim() ? defaultLabel() : label, amount, direction, date, accountId, toAccountId: transfer ? toAccountId : null, today };
   const save = () =>
     line?.itemId
       ? act("save", () => updateForecastItem(line.itemId!, input), "Ligne prévue modifiée")
@@ -468,7 +479,7 @@ function PlannedModal({
     <Modal
       open
       onClose={onClose}
-      title={line ? "Modifier la ligne prévue" : "Ajouter une entrée / sortie prévue"}
+      title={line ? "Modifier la ligne prévue" : "Ajouter une entrée, une sortie ou un virement prévu"}
       footer={
         <>
           {line?.itemId && (
@@ -502,11 +513,17 @@ function PlannedModal({
           options={[
             { value: "out", label: "− Sortie" },
             { value: "in", label: "+ Entrée" },
+            { value: "transfer", label: "⇄ Virement" },
           ]}
         />
         <div>
-          <Label htmlFor="pl-label">Libellé</Label>
-          <Input id="pl-label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Assurance auto, prime, vacances…" />
+          <Label htmlFor="pl-label">Libellé{transfer && " (facultatif)"}</Label>
+          <Input
+            id="pl-label"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder={transfer ? defaultLabel() : "Assurance auto, prime, vacances…"}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -518,10 +535,18 @@ function PlannedModal({
             <Input id="pl-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
         </div>
-        <div className={clsx("grid gap-3", !line && "grid-cols-2")}>
+        <div className={clsx("grid gap-3", (!line || transfer) && "grid-cols-2")}>
           <div>
-            <Label htmlFor="pl-account">Compte</Label>
-            <Select id="pl-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            <Label htmlFor="pl-account">{transfer ? "Depuis" : "Compte"}</Label>
+            <Select
+              id="pl-account"
+              value={accountId}
+              onChange={(e) => {
+                const next = e.target.value;
+                setAccountId(next);
+                if (next === toAccountId) setToAccountId(activeAccounts.find((a) => a.id !== next)?.id ?? "");
+              }}
+            >
               {activeAccounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -529,6 +554,20 @@ function PlannedModal({
               ))}
             </Select>
           </div>
+          {transfer && (
+            <div>
+              <Label htmlFor="pl-to">Vers</Label>
+              <Select id="pl-to" value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>
+                {activeAccounts
+                  .filter((a) => a.id !== accountId)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+              </Select>
+            </div>
+          )}
           {!line && (
             <div>
               <Label htmlFor="pl-months">Pendant</Label>

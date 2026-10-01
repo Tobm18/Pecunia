@@ -215,13 +215,20 @@ export async function resetProposal(key: string): Promise<ActionResult> {
 const plannedSchema = z.object({
   label: z.string().trim().min(1, "Le libellé est obligatoire.").max(120),
   amount: z.string(),
-  direction: z.enum(["out", "in"]),
+  direction: z.enum(["out", "in", "transfer"]),
   date: isoDate,
   accountId: uuid,
+  /** Virement interne : compte crédité */
+  toAccountId: uuid.nullable().optional(),
   today: isoDate,
 });
 
-async function validatePlanned(input: z.input<typeof plannedSchema>): Promise<ActionResult<{ v: z.output<typeof plannedSchema>; cents: number }>> {
+const MISSING_TRANSFER_COLUMN = "Les virements prévus ne sont pas encore activés : exécute la migration « forecast_transfers » dans Supabase.";
+const plannedError = (code?: string) => (code === "42703" || code === "PGRST204" ? MISSING_TRANSFER_COLUMN : GENERIC_ERROR);
+
+async function validatePlanned(
+  input: z.input<typeof plannedSchema>,
+): Promise<ActionResult<{ v: z.output<typeof plannedSchema>; cents: number; toAccountId: string | null }>> {
   const parsed = plannedSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? GENERIC_ERROR);
   const v = parsed.data;
@@ -232,7 +239,12 @@ async function validatePlanned(input: z.input<typeof plannedSchema>): Promise<Ac
     return fail("La date doit être dans le mois en cours ou après.");
   }
   if (!accounts.some((a) => a.id === v.accountId && !a.archivedAt)) return fail("Compte introuvable.");
-  return ok({ v, cents: v.direction === "out" ? -cents : cents });
+  if (v.direction === "transfer") {
+    if (!v.toAccountId || !accounts.some((a) => a.id === v.toAccountId && !a.archivedAt)) return fail("Choisis le compte de destination.");
+    if (v.toAccountId === v.accountId) return fail("Choisis deux comptes différents.");
+    return ok({ v, cents: -cents, toAccountId: v.toAccountId });
+  }
+  return ok({ v, cents: v.direction === "out" ? -cents : cents, toAccountId: null });
 }
 
 /** Ajoute une entrée / sortie prévue, répétée sur `months` mois (même jour, ramené à la fin du mois). */
@@ -241,7 +253,7 @@ export async function createForecastItems(input: z.input<typeof plannedSchema> &
   if (!Number.isInteger(months) || months < 1 || months > 36) return fail("Choisis entre 1 et 36 mois.");
   const validated = await validatePlanned(input);
   if (!validated.ok) return validated;
-  const { v, cents } = validated.data;
+  const { v, cents, toAccountId } = validated.data;
   const { supabase, user } = await getSession();
   const seriesId = months > 1 ? crypto.randomUUID() : null;
   const { error } = await supabase.from("forecast_items").insert(
@@ -253,9 +265,10 @@ export async function createForecastItems(input: z.input<typeof plannedSchema> &
       date,
       status: "planned",
       ...(seriesId ? { series_id: seriesId } : {}),
+      ...(toAccountId ? { to_account_id: toAccountId } : {}),
     })),
   );
-  if (error) return fail(GENERIC_ERROR);
+  if (error) return fail(plannedError(error.code));
   refresh();
   return ok(undefined);
 }
@@ -264,13 +277,13 @@ export async function updateForecastItem(id: string, input: z.input<typeof plann
   if (!uuid.safeParse(id).success) return fail(GENERIC_ERROR);
   const validated = await validatePlanned(input);
   if (!validated.ok) return validated;
-  const { v, cents } = validated.data;
+  const { v, cents, toAccountId } = validated.data;
   const { supabase } = await getSession();
   const { error } = await supabase
     .from("forecast_items")
-    .update({ label: v.label, amount_cents: cents, date: v.date, account_id: v.accountId })
+    .update({ label: v.label, amount_cents: cents, date: v.date, account_id: v.accountId, to_account_id: toAccountId })
     .eq("id", id);
-  if (error) return fail(GENERIC_ERROR);
+  if (error) return fail(plannedError(error.code));
   refresh();
   return ok(undefined);
 }

@@ -110,6 +110,7 @@ export const toForecastItem = (r: Row): ForecastItem => ({
   status: r.status,
   linkedTransactionId: r.linked_transaction_id,
   seriesId: r.series_id ?? null,
+  toAccountId: r.to_account_id ?? null,
 });
 
 export const toForecastDecision = (r: Row): ForecastDecision => ({

@@ -110,6 +110,8 @@ export interface ForecastItem {
   linkedTransactionId: string | null;
   /** Lignes créées ensemble pour plusieurs mois */
   seriesId: string | null;
+  /** Virement interne : compte crédité (amountCents, négatif, porte sur accountId) */
+  toAccountId: string | null;
 }
 
 /** Décision sur une proposition du prévisionnel (échéance ou budget) pour un mois. */

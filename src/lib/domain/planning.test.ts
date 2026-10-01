@@ -94,7 +94,7 @@ describe("prévisionnel", () => {
     referenceIncomeCents: 0,
   });
   const forecastItems: ForecastItem[] = [
-    { id: "f1", accountId: "courant", label: "Assurance auto", amountCents: -120000, date: "2026-10-20", status: "planned", linkedTransactionId: null, seriesId: null },
+    { id: "f1", accountId: "courant", label: "Assurance auto", amountCents: -120000, date: "2026-10-20", status: "planned", linkedTransactionId: null, seriesId: null, toAccountId: null },
   ];
   const decision = (sourceKey: string, status: ForecastDecision["status"], over: Partial<ForecastDecision> = {}): ForecastDecision => ({
     id: sourceKey,
@@ -154,6 +154,24 @@ describe("prévisionnel", () => {
     expect(oct.perAccount.courant!.netCents).toBe(160000 - 50000 - 30000 - 120000);
     expect(oct.perAccount.courant!).toMatchObject({ inCents: 160000, outCents: 200000 });
     expect(oct.pendingCount).toBe(1);
+  });
+
+  it("virement interne prévu : débite un compte, crédite l'autre", () => {
+    const { months } = buildForecast({
+      accounts,
+      balances: { courant: 20000, livret: 100000 },
+      today: "2026-09-15",
+      horizon: 1,
+      startDay: 1,
+      occurrences: [],
+      forecastItems: [
+        { id: "v", accountId: "livret", toAccountId: "courant", label: "Renflouer", amountCents: -50000, date: "2026-09-25", status: "planned", linkedTransactionId: null, seriesId: null },
+      ],
+      decisions: [],
+      budgets: null,
+    });
+    expect(months[0]!.perAccount.courant!.endBalanceCents).toBe(70000);
+    expect(months[0]!.perAccount.livret!.endBalanceCents).toBe(50000);
   });
 
   it("répète une ligne prévue sur plusieurs mois", () => {

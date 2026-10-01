@@ -107,16 +107,26 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         };
       }),
     ...forecastItems
-      .filter((f) => f.status === "planned" && f.date >= today && f.date <= horizonEnd && (!accountId || f.accountId === accountId))
-      .map((f) => ({
-        key: f.id,
-        date: f.date,
-        label: f.label,
-        cents: f.amountCents,
-        transfer: false,
-        color: "#e9a23b",
-        meta: ["Prévue", accountById.get(f.accountId) && shortAccountName(accountById.get(f.accountId)!)].filter(Boolean).join(" · "),
-      })),
+      .filter(
+        (f) =>
+          f.status === "planned" && f.date >= today && f.date <= horizonEnd && (!accountId || f.accountId === accountId || f.toAccountId === accountId),
+      )
+      .map((f) => {
+        const from = accountById.get(f.accountId);
+        const to = f.toAccountId ? accountById.get(f.toAccountId) : undefined;
+        return {
+          key: f.id,
+          date: f.date,
+          label: f.label,
+          // virement vu depuis le compte filtré : crédit si c'est le compte de destination
+          cents: f.toAccountId && accountId === f.toAccountId ? -f.amountCents : f.amountCents,
+          transfer: !!f.toAccountId,
+          color: f.toAccountId ? "#98a1b0" : "#e9a23b",
+          meta: f.toAccountId
+            ? ["Virement prévu", from && to && `${shortAccountName(from)} → ${shortAccountName(to)}`].filter(Boolean).join(" · ")
+            : ["Prévue", from && shortAccountName(from)].filter(Boolean).join(" · "),
+        };
+      }),
   ]
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
     .slice(0, 5);
