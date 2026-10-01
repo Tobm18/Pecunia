@@ -1,37 +1,61 @@
 /**
- * Prévisionnel : solde projeté fin de mois, par compte.
+ * Prévisionnel validé à la main.
  *
- * Solde fin de mois = solde de début
- *   + échéances de récurrences encore à venir (entrées, sorties, virements)
- *   + dépenses / revenus ponctuels prévus (non liés)
- *   − estimation des dépenses courantes (budgets de dépense, hors part déjà couverte par
- *     une récurrence ; pour le mois en cours, seulement le reste à dépenser).
+ * Pour chaque mois, l'application **propose** des lignes : les échéances des récurrences
+ * pas encore réalisées et une ligne par budget de dépense (hors part déjà couverte par une
+ * récurrence ; pour le mois en cours, seulement le reste à dépenser). Chaque proposition est
+ * à valider : acceptée (éventuellement modifiée) ou refusée. S'y ajoutent les lignes prévues
+ * saisies à la main (entrées / sorties, éventuellement sur plusieurs mois).
+ *
+ * Solde fin de mois = solde de début + propositions acceptées + lignes prévues.
+ * Les propositions à valider ne comptent pas : elles donnent seulement le solde « si tout
+ * est accepté ».
  */
-import type { Account, ForecastItem } from "./types";
+import type { Account, ForecastDecision, ForecastItem } from "./types";
 import type { BudgetOverview } from "./budgets";
 import { addMonths, monthKeyOf, monthPeriod, type IsoDate, type MonthKey } from "./dates";
-import { signedRecurrenceCents, type Occurrence } from "./recurrences";
+import type { Occurrence } from "./recurrences";
 
-export type ForecastItemKind = "recurrence" | "transfer" | "planned" | "estimate";
+export type ProposalStatus = "pending" | "accepted" | "rejected";
 
-export interface ProjectedItem {
+export interface Proposal {
+  /** Clé de décision (source_key) */
+  key: string;
+  source: "recurrence" | "budget";
+  month: MonthKey;
   label: string;
-  /** Signé, du point de vue du compte */
+  type: "out" | "in" | "transfer";
+  categoryId: string | null;
+  accountId: string;
+  toAccountId: string | null;
+  /** Montant proposé, positif */
+  proposedCents: number;
+  proposedDate: IsoDate | null;
+  /** Montant et date retenus (modifiés ou proposés) */
   amountCents: number;
-  kind: ForecastItemKind;
   date: IsoDate | null;
+  status: ProposalStatus;
+  modified: boolean;
 }
 
 export interface AccountMonth {
-  items: ProjectedItem[];
+  /** Entrées / sorties retenues (acceptées + prévues), virements compris */
+  inCents: number;
+  outCents: number;
   netCents: number;
   endBalanceCents: number;
+  /** Solde de fin de mois si toutes les propositions à valider étaient acceptées */
+  endIfAllCents: number;
 }
 
-export interface ProjectedMonth {
+export interface ForecastMonth {
   month: MonthKey;
+  proposals: Proposal[];
+  planned: ForecastItem[];
+  /** Échéances déjà réalisées ce mois-ci (pour information, déjà dans le solde) */
+  realized: Occurrence[];
   perAccount: Record<string, AccountMonth>;
-  totalEndCents: number;
+  pendingCount: number;
 }
 
 export interface NegativeAlert {
@@ -40,7 +64,18 @@ export interface NegativeAlert {
   balanceCents: number;
 }
 
-export function projectBalances(params: {
+export const recurrenceKey = (recurrenceId: string, date: IsoDate) => `rec:${recurrenceId}:${date}`;
+export const budgetKey = (categoryId: string, month: MonthKey) => `bud:${categoryId}:${month}`;
+
+/** Mouvements d'une ligne sur les comptes : [compte, montant signé]. */
+export function proposalEffects(p: Pick<Proposal, "type" | "accountId" | "toAccountId" | "amountCents">): [string, number][] {
+  if (p.type === "transfer") {
+    return p.toAccountId ? [[p.accountId, -p.amountCents], [p.toAccountId, p.amountCents]] : [[p.accountId, -p.amountCents]];
+  }
+  return [[p.accountId, p.type === "in" ? p.amountCents : -p.amountCents]];
+}
+
+export function buildForecast(params: {
   accounts: Account[];
   /** Solde actuel par compte */
   balances: Record<string, number>;
@@ -50,90 +85,149 @@ export function projectBalances(params: {
   /** Échéances couvrant l'horizon (réalisées ou non) */
   occurrences: Occurrence[];
   forecastItems: ForecastItem[];
-  /** Budgets du mois en cours (pour le reste à dépenser et l'estimation des mois suivants) */
+  decisions: ForecastDecision[];
+  /** Budgets du mois en cours (reste à dépenser, et montants des mois suivants) */
   budgets: BudgetOverview | null;
-}): { months: ProjectedMonth[]; alerts: NegativeAlert[] } {
-  const { accounts, balances, today, horizon, startDay, occurrences, forecastItems, budgets } = params;
+}): { months: ForecastMonth[]; alerts: NegativeAlert[] } {
+  const { accounts, balances, today, horizon, startDay, occurrences, forecastItems, decisions, budgets } = params;
   const active = accounts.filter((a) => !a.archivedAt);
   const activeIds = new Set(active.map((a) => a.id));
   const currentMonth = monthKeyOf(today, startDay);
-  const months = Array.from({ length: horizon }, (_, i) => addMonths(currentMonth, i));
+  const decisionByKey = new Map(decisions.map((d) => [d.sourceKey, d]));
 
-  // Compte qui porte l'estimation des dépenses courantes : 1er compte courant « dans le budget »
+  // Compte qui porte les budgets sans compte restreint : 1er compte courant « dans le budget »
   const mainAccount =
     active.find((a) => a.type === "current" && a.inBudget) ?? active.find((a) => a.inBudget) ?? active[0];
 
-  // Part des budgets déjà couverte par des sorties récurrentes (évite le double comptage)
-  const recurringByCategory = new Map<string, number>();
+  const decide = (base: Omit<Proposal, "amountCents" | "date" | "status" | "modified">): Proposal => {
+    const d = decisionByKey.get(base.key);
+    const accountId = d?.accountId && activeIds.has(d.accountId) && base.type !== "transfer" ? d.accountId : base.accountId;
+    const amountCents = d?.amountCents ?? base.proposedCents;
+    const date = (base.source === "recurrence" && d?.date) || base.proposedDate;
+    return {
+      ...base,
+      accountId,
+      amountCents,
+      date,
+      status: d?.status ?? "pending",
+      modified: !!d && (amountCents !== base.proposedCents || date !== base.proposedDate || accountId !== base.accountId),
+    };
+  };
 
   const running: Record<string, number> = Object.fromEntries(active.map((a) => [a.id, balances[a.id] ?? a.initialBalanceCents]));
-  const result: ProjectedMonth[] = [];
+  const runningIfAll = { ...running };
+  const months: ForecastMonth[] = [];
   const alerts = new Map<string, NegativeAlert>();
 
-  for (const month of months) {
+  for (let i = 0; i < horizon; i++) {
+    const month = addMonths(currentMonth, i);
     const period = monthPeriod(month, startDay);
+    const inMonth = occurrences.filter((o) => o.date >= period.start && o.date <= period.end);
+    const proposals: Proposal[] = [];
+
+    // Échéances des récurrences
+    const coveredByCategory = new Map<string, number>();
+    for (const occ of inMonth) {
+      const r = occ.recurrence;
+      if (r.type === "out" && r.categoryId) coveredByCategory.set(r.categoryId, (coveredByCategory.get(r.categoryId) ?? 0) + r.amountCents);
+      if (occ.status === "done" || !activeIds.has(r.accountId)) continue;
+      proposals.push(
+        decide({
+          key: recurrenceKey(r.id, occ.date),
+          source: "recurrence",
+          month,
+          label: r.label,
+          type: r.type,
+          categoryId: r.categoryId,
+          accountId: r.accountId,
+          toAccountId: r.type === "transfer" && r.toAccountId && activeIds.has(r.toAccountId) ? r.toAccountId : null,
+          proposedCents: r.amountCents,
+          proposedDate: occ.date,
+        }),
+      );
+    }
+
+    // Budgets de dépense (hors part couverte par une récurrence)
+    for (const line of budgets?.lines ?? []) {
+      const covered = coveredByCategory.get(line.category.id) ?? 0;
+      const base = Math.max(0, line.budgetCents - covered);
+      const spentOutsideRecurring = Math.max(0, line.spentCents - covered);
+      const proposedCents = month === currentMonth ? Math.max(0, base - spentOutsideRecurring) : base;
+      if (proposedCents <= 0) continue;
+      const accountId = line.category.restrictedAccountIds.find((id) => activeIds.has(id)) ?? mainAccount?.id;
+      if (!accountId) continue;
+      proposals.push(
+        decide({
+          key: budgetKey(line.category.id, month),
+          source: "budget",
+          month,
+          label: line.category.name,
+          type: "out",
+          categoryId: line.category.id,
+          accountId,
+          toAccountId: null,
+          proposedCents,
+          proposedDate: null,
+        }),
+      );
+    }
+    proposals.sort((a, b) => (a.date ?? "9999") < (b.date ?? "9999") ? -1 : (a.date ?? "9999") > (b.date ?? "9999") ? 1 : a.label.localeCompare(b.label));
+
+    const planned = forecastItems
+      .filter((f) => f.status === "planned" && f.date >= period.start && f.date <= period.end && activeIds.has(f.accountId))
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
     const perAccount: Record<string, AccountMonth> = Object.fromEntries(
-      active.map((a) => [a.id, { items: [], netCents: 0, endBalanceCents: 0 } as AccountMonth]),
+      active.map((a) => [a.id, { inCents: 0, outCents: 0, netCents: 0, endBalanceCents: 0, endIfAllCents: 0 }]),
     );
-    const add = (accountId: string, item: ProjectedItem) => {
+    const pendingNet: Record<string, number> = {};
+    const count = (accountId: string, cents: number) => {
       const slot = perAccount[accountId];
       if (!slot) return;
-      slot.items.push(item);
-      slot.netCents += item.amountCents;
+      if (cents >= 0) slot.inCents += cents;
+      else slot.outCents -= cents;
+      slot.netCents += cents;
     };
-
-    recurringByCategory.clear();
-    for (const occ of occurrences) {
-      if (occ.date < period.start || occ.date > period.end) continue;
-      const r = occ.recurrence;
-      if (r.type === "out" && r.categoryId) {
-        recurringByCategory.set(r.categoryId, (recurringByCategory.get(r.categoryId) ?? 0) + r.amountCents);
-      }
-      if (occ.status === "done") continue; // déjà dans le solde actuel
-      if (r.type === "transfer") {
-        add(r.accountId, { label: r.label, amountCents: -r.amountCents, kind: "transfer", date: occ.date });
-        if (r.toAccountId && activeIds.has(r.toAccountId)) {
-          add(r.toAccountId, { label: r.label, amountCents: r.amountCents, kind: "transfer", date: occ.date });
-        }
-      } else {
-        add(r.accountId, { label: r.label, amountCents: signedRecurrenceCents(r), kind: "recurrence", date: occ.date });
+    for (const p of proposals) {
+      for (const [accountId, cents] of proposalEffects(p)) {
+        if (p.status === "accepted") count(accountId, cents);
+        else if (p.status === "pending") pendingNet[accountId] = (pendingNet[accountId] ?? 0) + cents;
       }
     }
+    for (const f of planned) count(f.accountId, f.amountCents);
 
-    for (const f of forecastItems) {
-      if (f.status !== "planned" || f.date < period.start || f.date > period.end) continue;
-      if (month === currentMonth && f.date < today) continue; // échue : à saisir, plus prévue
-      add(f.accountId, { label: f.label, amountCents: f.amountCents, kind: "planned", date: f.date });
-    }
-
-    // Estimation des dépenses courantes par ligne de budget de dépense
-    if (budgets) {
-      for (const line of budgets.lines) {
-        const covered = recurringByCategory.get(line.category.id) ?? 0;
-        const base = Math.max(0, line.budgetCents - covered);
-        const spentOutsideRecurring = Math.max(0, line.spentCents - covered);
-        const estimate = month === currentMonth ? Math.max(0, base - spentOutsideRecurring) : base;
-        if (estimate <= 0) continue;
-        const target = line.category.restrictedAccountIds.find((id) => activeIds.has(id)) ?? mainAccount?.id;
-        if (target) add(target, { label: `Dépenses courantes · ${line.category.name}`, amountCents: -estimate, kind: "estimate", date: null });
-      }
-    }
-
-    let total = 0;
     for (const a of active) {
       const slot = perAccount[a.id]!;
       running[a.id] = running[a.id]! + slot.netCents;
+      runningIfAll[a.id] = runningIfAll[a.id]! + slot.netCents + (pendingNet[a.id] ?? 0);
       slot.endBalanceCents = running[a.id]!;
-      slot.items.sort((x, y) => (x.date ?? "9999") < (y.date ?? "9999") ? -1 : 1);
-      total += slot.endBalanceCents;
-      if (slot.endBalanceCents < 0 && !alerts.has(a.id)) {
-        alerts.set(a.id, { accountId: a.id, month, balanceCents: slot.endBalanceCents });
-      }
+      slot.endIfAllCents = runningIfAll[a.id]!;
+      if (slot.endBalanceCents < 0 && !alerts.has(a.id)) alerts.set(a.id, { accountId: a.id, month, balanceCents: slot.endBalanceCents });
     }
-    result.push({ month, perAccount, totalEndCents: total });
+
+    months.push({
+      month,
+      proposals,
+      planned,
+      realized: inMonth.filter((o) => o.status === "done"),
+      perAccount,
+      pendingCount: proposals.filter((p) => p.status === "pending").length,
+    });
   }
 
-  return { months: result, alerts: [...alerts.values()] };
+  return { months, alerts: [...alerts.values()] };
+}
+
+/** Dates d'une ligne prévue répétée sur `count` mois, à partir de `first` (jour ramené à la fin du mois). */
+export function seriesDates(first: IsoDate, count: number): IsoDate[] {
+  const [y, m, d] = first.split("-").map(Number) as [number, number, number];
+  return Array.from({ length: count }, (_, i) => {
+    const monthIndex = m - 1 + i;
+    const year = y + Math.floor(monthIndex / 12);
+    const month = (monthIndex % 12) + 1;
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return `${year}-${String(month).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+  });
 }
 
 /**

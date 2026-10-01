@@ -52,9 +52,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ for
   }
 
   if (format === "json") {
-    const [recurrences, forecastItems, goals] = await Promise.all([
+    const [recurrences, forecastItems, forecastDecisions, goals] = await Promise.all([
       supabase.from("recurrences").select("*"),
       supabase.from("forecast_items").select("*"),
+      supabase.from("forecast_decisions").select("*"),
       supabase.from("goals").select("*"),
     ]);
     await supabase.from("profiles").update({ last_backup_at: new Date().toISOString() }).eq("id", user.id);
@@ -70,6 +71,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ for
       transactions,
       recurrences: recurrences.data ?? [],
       forecastItems: forecastItems.data ?? [],
+      forecastDecisions: forecastDecisions.data ?? [],
       goals: goals.data ?? [],
     };
     return new NextResponse(JSON.stringify(backup, null, 2), {

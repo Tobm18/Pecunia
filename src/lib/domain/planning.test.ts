@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { account, category, budget, demoAccounts, transfer, tx } from "./__fixtures__";
-import type { ForecastItem, Goal, Recurrence } from "./types";
+import type { ForecastDecision, ForecastItem, Goal, Recurrence } from "./types";
 import { buildOccurrences, monthlyEquivalentCents, occurrenceDates } from "./recurrences";
-import { findForecastMatch, projectBalances } from "./forecast";
+import { buildForecast, findForecastMatch, seriesDates } from "./forecast";
 import { goalStatus, monthsUntil } from "./goals";
 import { categorySeries, compareMonths, savingsByAccount } from "./analyses";
 import { computeBudgets } from "./budgets";
@@ -94,34 +94,70 @@ describe("prévisionnel", () => {
     referenceIncomeCents: 0,
   });
   const forecastItems: ForecastItem[] = [
-    { id: "f1", accountId: "courant", label: "Assurance auto", amountCents: -120000, date: "2026-10-20", status: "planned", linkedTransactionId: null },
+    { id: "f1", accountId: "courant", label: "Assurance auto", amountCents: -120000, date: "2026-10-20", status: "planned", linkedTransactionId: null, seriesId: null },
   ];
-  const { months, alerts } = projectBalances({
-    accounts,
-    balances: { courant: 20000, livret: 100000 },
-    today: "2026-09-15",
-    horizon: 3,
-    startDay: 1,
-    occurrences,
-    forecastItems,
-    budgets,
+  const decision = (sourceKey: string, status: ForecastDecision["status"], over: Partial<ForecastDecision> = {}): ForecastDecision => ({
+    id: sourceKey,
+    sourceKey,
+    month: "2026-09",
+    status,
+    amountCents: null,
+    accountId: null,
+    date: null,
+    ...over,
+  });
+  const run = (decisions: ForecastDecision[]) =>
+    buildForecast({
+      accounts,
+      balances: { courant: 20000, livret: 100000 },
+      today: "2026-09-15",
+      horizon: 3,
+      startDay: 1,
+      occurrences,
+      forecastItems,
+      decisions,
+      budgets,
+    });
+
+  it("propose les échéances non réalisées et le reste des budgets, sans rien compter d'office", () => {
+    const { months, alerts } = run([]);
+    const sept = months[0]!;
+    expect(sept.proposals.map((p) => [p.key, p.amountCents, p.status])).toEqual([
+      ["rec:epargne:2026-09-02", 30000, "pending"],
+      ["rec:loyer:2026-09-10", 50000, "pending"],
+      ["bud:courses:2026-09", 30000, "pending"], // 400 − 100 dépensés ; logement couvert par le loyer
+    ]);
+    expect(sept.realized.map((o) => o.recurrence.id)).toEqual(["salaire"]);
+    expect(sept.pendingCount).toBe(3);
+    expect(sept.perAccount.courant!.endBalanceCents).toBe(20000);
+    expect(sept.perAccount.courant!.endIfAllCents).toBe(20000 - 30000 - 50000 - 30000);
+    // seule l'assurance prévue (saisie à la main) compte en octobre
+    expect(alerts).toEqual([{ accountId: "courant", month: "2026-10", balanceCents: 20000 - 120000 }]);
   });
 
-  it("mois en cours : échéances non réalisées + reste des budgets hors récurrences", () => {
-    const sept = months[0]!.perAccount.courant!;
-    // loyer -500, virement -300, courses restantes -300 (logement couvert par la récurrence) ; salaire déjà perçu
-    expect(sept.items.map((i) => [i.kind, i.amountCents])).toEqual(
-      expect.arrayContaining([["recurrence", -50000], ["transfer", -30000], ["estimate", -30000]]),
-    );
-    expect(sept.items.some((i) => i.label === "Salaire")).toBe(false);
-    expect(sept.endBalanceCents).toBe(20000 - 50000 - 30000 - 30000);
-    expect(months[0]!.perAccount.livret!.endBalanceCents).toBe(130000);
+  it("acceptée, modifiée ou refusée : seules les lignes retenues et les lignes prévues comptent", () => {
+    const { months, alerts } = run([
+      decision("rec:loyer:2026-09-10", "accepted"),
+      decision("rec:epargne:2026-09-02", "accepted", { amountCents: 10000 }),
+      decision("bud:courses:2026-09", "rejected"),
+      decision("rec:salaire:2026-10-01", "accepted", { month: "2026-10", amountCents: 160000, date: "2026-10-03" }),
+    ]);
+    const sept = months[0]!;
+    expect(sept.proposals.find((p) => p.key === "rec:epargne:2026-09-02")).toMatchObject({ status: "accepted", modified: true, amountCents: 10000 });
+    expect(sept.perAccount.courant!.endBalanceCents).toBe(20000 - 50000 - 10000);
+    expect(sept.perAccount.livret!.endBalanceCents).toBe(110000);
+    expect(alerts).toEqual([{ accountId: "courant", month: "2026-09", balanceCents: -40000 }]);
+
+    const oct = months[1]!;
+    expect(oct.proposals.find((p) => p.key === "rec:salaire:2026-10-01")).toMatchObject({ date: "2026-10-03", modified: true });
+    // salaire modifié + assurance prévue ; le reste est à valider
+    expect(oct.perAccount.courant!.netCents).toBe(160000 - 120000);
+    expect(oct.perAccount.courant!).toMatchObject({ inCents: 160000, outCents: 120000 });
+    expect(oct.pendingCount).toBe(3);
   });
 
-  it("mois suivants : budgets complets, dépense prévue et alerte de solde négatif", () => {
-    const oct = months[1]!.perAccount.courant!;
-    expect(oct.netCents).toBe(150000 - 50000 - 30000 - 40000 - 120000);
-    expect(alerts).toEqual([{ accountId: "courant", month: "2026-09", balanceCents: -90000 }]);
+  it("répète une ligne prévue sur plusieurs mois", () => {
+    expect(seriesDates("2026-11-30", 4)).toEqual(["2026-11-30", "2026-12-30", "2027-01-30", "2027-02-28"]);
   });
 
   it("rapproche une saisie d'une dépense prévue", () => {

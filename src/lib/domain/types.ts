@@ -108,6 +108,21 @@ export interface ForecastItem {
   date: string;
   status: "planned" | "linked";
   linkedTransactionId: string | null;
+  /** Lignes créées ensemble pour plusieurs mois */
+  seriesId: string | null;
+}
+
+/** Décision sur une proposition du prévisionnel (échéance ou budget) pour un mois. */
+export interface ForecastDecision {
+  id: string;
+  /** « rec:<récurrence>:<date> » ou « bud:<catégorie>:<mois> » */
+  sourceKey: string;
+  month: string;
+  status: "accepted" | "rejected";
+  /** Valeurs modifiées ; null = celles proposées */
+  amountCents: number | null;
+  accountId: string | null;
+  date: string | null;
 }
 
 export interface Goal {

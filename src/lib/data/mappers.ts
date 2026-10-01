@@ -1,5 +1,5 @@
 /** Conversion lignes SQL (snake_case) ↔ objets métier (camelCase). */
-import type { Account, Budget, Category, ForecastItem, Goal, PlaceMemoryEntry, Profile, Recurrence, Transaction } from "@/lib/domain/types";
+import type { Account, Budget, Category, ForecastDecision, ForecastItem, Goal, PlaceMemoryEntry, Profile, Recurrence, Transaction } from "@/lib/domain/types";
 
 // bigint Postgres → number JS : sûr jusqu'à 2^53 centimes (~90 000 milliards d'euros)
 const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
@@ -109,6 +109,17 @@ export const toForecastItem = (r: Row): ForecastItem => ({
   date: r.date,
   status: r.status,
   linkedTransactionId: r.linked_transaction_id,
+  seriesId: r.series_id ?? null,
+});
+
+export const toForecastDecision = (r: Row): ForecastDecision => ({
+  id: r.id,
+  sourceKey: r.source_key,
+  month: r.month,
+  status: r.status,
+  amountCents: r.amount_cents === null ? null : num(r.amount_cents),
+  accountId: r.account_id,
+  date: r.date,
 });
 
 export const toGoal = (r: Row): Goal => ({

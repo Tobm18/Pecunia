@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { isValidIsoDate } from "@/lib/domain/dates";
+import { isValidIsoDate, monthKeyOf, monthPeriod } from "@/lib/domain/dates";
+import { seriesDates } from "@/lib/domain/forecast";
 import { parseAmountToCents } from "@/lib/domain/money";
 import { signedRecurrenceCents } from "@/lib/domain/recurrences";
 import { getAccounts, getCategories, getProfile, getRecurrences, getSession } from "./queries";
@@ -142,10 +143,76 @@ export async function setOccurrenceDone(recurrenceId: string, date: string, done
 }
 
 // ---------------------------------------------------------------------------
-// Dépenses / revenus prévus (prévisionnel)
+// Prévisionnel : décisions sur les propositions
 // ---------------------------------------------------------------------------
 
-const forecastSchema = z.object({
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const sourceKey = z.string().regex(new RegExp(`^(rec:${UUID}:\\d{4}-\\d{2}-\\d{2}|bud:${UUID}:\\d{4}-\\d{2})$`, "i"));
+const monthKey = z.string().regex(/^\d{4}-\d{2}$/);
+const MISSING_TABLE = "Le prévisionnel n'est pas encore activé : exécute la migration « forecast_decisions » dans Supabase.";
+const isMissingTable = (code?: string) => code === "42P01" || code === "PGRST205";
+
+const decisionSchema = z.object({
+  sourceKey,
+  month: monthKey,
+  status: z.enum(["accepted", "rejected"]),
+  /** Modification (acceptée avec d'autres valeurs) ; vide = valeurs proposées */
+  amount: z.string().nullable().optional(),
+  date: isoDate.nullable().optional(),
+  accountId: uuid.nullable().optional(),
+});
+
+export type DecisionInput = z.input<typeof decisionSchema>;
+
+/** Oui / Non / Modifier sur une ou plusieurs propositions (upsert par clé). */
+export async function decideProposals(inputs: DecisionInput[]): Promise<ActionResult> {
+  if (inputs.length === 0 || inputs.length > 200) return fail(GENERIC_ERROR);
+  const accounts = await getAccounts();
+  const rows: Record<string, unknown>[] = [];
+  for (const input of inputs) {
+    const parsed = decisionSchema.safeParse(input);
+    if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? GENERIC_ERROR);
+    const v = parsed.data;
+    let amountCents: number | null = null;
+    if (v.amount) {
+      amountCents = positiveCents(v.amount);
+      if (amountCents === null) return fail("Le montant doit être supérieur à zéro.");
+    }
+    if (v.accountId && !accounts.some((a) => a.id === v.accountId && !a.archivedAt)) return fail("Compte introuvable.");
+    rows.push({
+      source_key: v.sourceKey,
+      month: v.month,
+      status: v.status,
+      amount_cents: v.status === "accepted" ? amountCents : null,
+      date: v.status === "accepted" ? (v.date ?? null) : null,
+      account_id: v.status === "accepted" ? (v.accountId ?? null) : null,
+      updated_at: new Date().toISOString(),
+    });
+  }
+  const { supabase, user } = await getSession();
+  const { error } = await supabase
+    .from("forecast_decisions")
+    .upsert(rows.map((r) => ({ ...r, user_id: user.id })), { onConflict: "user_id,source_key" });
+  if (error) return fail(isMissingTable(error.code) ? MISSING_TABLE : GENERIC_ERROR);
+  refresh();
+  return ok(undefined);
+}
+
+/** Annule une décision : la proposition redevient « à valider ». */
+export async function resetProposal(key: string): Promise<ActionResult> {
+  if (!sourceKey.safeParse(key).success) return fail(GENERIC_ERROR);
+  const { supabase } = await getSession();
+  const { error } = await supabase.from("forecast_decisions").delete().eq("source_key", key);
+  if (error) return fail(isMissingTable(error.code) ? MISSING_TABLE : GENERIC_ERROR);
+  refresh();
+  return ok(undefined);
+}
+
+// ---------------------------------------------------------------------------
+// Prévisionnel : lignes prévues saisies à la main (sur un ou plusieurs mois)
+// ---------------------------------------------------------------------------
+
+const plannedSchema = z.object({
   label: z.string().trim().min(1, "Le libellé est obligatoire.").max(120),
   amount: z.string(),
   direction: z.enum(["out", "in"]),
@@ -154,32 +221,80 @@ const forecastSchema = z.object({
   today: isoDate,
 });
 
-export async function createForecastItem(input: z.input<typeof forecastSchema>): Promise<ActionResult> {
-  const parsed = forecastSchema.safeParse(input);
+async function validatePlanned(input: z.input<typeof plannedSchema>): Promise<ActionResult<{ v: z.output<typeof plannedSchema>; cents: number }>> {
+  const parsed = plannedSchema.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? GENERIC_ERROR);
   const v = parsed.data;
   const cents = positiveCents(v.amount);
   if (cents === null) return fail("Le montant doit être supérieur à zéro.");
-  if (v.date <= v.today) return fail("La date doit être dans le futur");
-  if (!(await getAccounts()).some((a) => a.id === v.accountId && !a.archivedAt)) return fail("Compte introuvable.");
+  const [profile, accounts] = await Promise.all([getProfile(), getAccounts()]);
+  if (v.date < monthPeriod(monthKeyOf(v.today, profile.monthStartDay), profile.monthStartDay).start) {
+    return fail("La date doit être dans le mois en cours ou après.");
+  }
+  if (!accounts.some((a) => a.id === v.accountId && !a.archivedAt)) return fail("Compte introuvable.");
+  return ok({ v, cents: v.direction === "out" ? -cents : cents });
+}
+
+/** Ajoute une entrée / sortie prévue, répétée sur `months` mois (même jour, ramené à la fin du mois). */
+export async function createForecastItems(input: z.input<typeof plannedSchema> & { months: number }): Promise<ActionResult> {
+  const months = Number(input.months);
+  if (!Number.isInteger(months) || months < 1 || months > 36) return fail("Choisis entre 1 et 36 mois.");
+  const validated = await validatePlanned(input);
+  if (!validated.ok) return validated;
+  const { v, cents } = validated.data;
   const { supabase, user } = await getSession();
-  const { error } = await supabase.from("forecast_items").insert({
-    user_id: user.id,
-    account_id: v.accountId,
-    label: v.label,
-    amount_cents: v.direction === "out" ? -cents : cents,
-    date: v.date,
-    status: "planned",
-  });
+  const seriesId = months > 1 ? crypto.randomUUID() : null;
+  const { error } = await supabase.from("forecast_items").insert(
+    seriesDates(v.date, months).map((date) => ({
+      user_id: user.id,
+      account_id: v.accountId,
+      label: v.label,
+      amount_cents: cents,
+      date,
+      status: "planned",
+      ...(seriesId ? { series_id: seriesId } : {}),
+    })),
+  );
   if (error) return fail(GENERIC_ERROR);
   refresh();
   return ok(undefined);
 }
 
-export async function deleteForecastItem(id: string): Promise<ActionResult> {
+export async function updateForecastItem(id: string, input: z.input<typeof plannedSchema>): Promise<ActionResult> {
+  if (!uuid.safeParse(id).success) return fail(GENERIC_ERROR);
+  const validated = await validatePlanned(input);
+  if (!validated.ok) return validated;
+  const { v, cents } = validated.data;
+  const { supabase } = await getSession();
+  const { error } = await supabase
+    .from("forecast_items")
+    .update({ label: v.label, amount_cents: cents, date: v.date, account_id: v.accountId })
+    .eq("id", id);
+  if (error) return fail(GENERIC_ERROR);
+  refresh();
+  return ok(undefined);
+}
+
+/** Supprime une ligne prévue, ou toute sa série à partir de ce mois. */
+export async function deleteForecastItem(id: string, wholeSeries = false): Promise<ActionResult> {
   if (!uuid.safeParse(id).success) return fail(GENERIC_ERROR);
   const { supabase } = await getSession();
-  const { error } = await supabase.from("forecast_items").delete().eq("id", id);
+  let error;
+  if (wholeSeries) {
+    const { data: item } = await supabase.from("forecast_items").select("series_id, date").eq("id", id).maybeSingle();
+    if (item?.series_id) {
+      ({ error } = await supabase
+        .from("forecast_items")
+        .delete()
+        .eq("series_id", item.series_id)
+        .eq("status", "planned")
+        .gte("date", item.date));
+    } else {
+      ({ error } = await supabase.from("forecast_items").delete().eq("id", id));
+    }
+  } else {
+    ({ error } = await supabase.from("forecast_items").delete().eq("id", id));
+  }
   if (error) return fail("Suppression impossible, réessaie dans un instant.");
   refresh();
   return ok(undefined);

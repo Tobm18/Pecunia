@@ -3,8 +3,8 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_ACCOUNT, DEFAULT_CATEGORIES } from "@/lib/domain/defaults";
-import type { Account, Budget, Category, ForecastItem, Goal, PlaceMemoryEntry, Profile, Recurrence, Transaction } from "@/lib/domain/types";
-import { toAccount, toBudget, toCategory, toForecastItem, toGoal, toPlaceMemory, toProfile, toRecurrence, toTransaction } from "./mappers";
+import type { Account, Budget, Category, ForecastDecision, ForecastItem, Goal, PlaceMemoryEntry, Profile, Recurrence, Transaction } from "@/lib/domain/types";
+import { toAccount, toBudget, toCategory, toForecastDecision, toForecastItem, toGoal, toPlaceMemory, toProfile, toRecurrence, toTransaction } from "./mappers";
 
 /**
  * Couche de lecture côté serveur. Toute la dépendance à Supabase est confinée ici et dans
@@ -149,6 +149,19 @@ export const getForecastItems = cache(async (): Promise<ForecastItem[]> => {
   const { data, error } = await supabase.from("forecast_items").select("*").order("date");
   if (error) throw error;
   return data.map(toForecastItem);
+});
+
+export const getForecastDecisions = cache(async (fromMonth?: string): Promise<ForecastDecision[]> => {
+  const { supabase } = await getSession();
+  let q = supabase.from("forecast_decisions").select("*");
+  if (fromMonth) q = q.gte("month", fromMonth);
+  const { data, error } = await q;
+  if (error) {
+    // migration « forecast_decisions » pas encore exécutée : aucune décision
+    if (error.code === "42P01" || error.code === "PGRST205") return [];
+    throw error;
+  }
+  return data.map(toForecastDecision);
 });
 
 export const getGoals = cache(async (): Promise<Goal[]> => {

@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { ArrowLeftRight, Banknote, PiggyBank, ShoppingCart, TrendingUp, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
-import { getAppData, getTransactions } from "@/lib/data/queries";
+import { getAppData, getForecastDecisions, getTransactions } from "@/lib/data/queries";
 import { getBudgetOverview, resolveMonth } from "@/lib/data/views";
-import { addMonths, isInPeriod, lastMonths, monthAbbr, monthPeriod, shortDate, todayIso } from "@/lib/domain/dates";
+import { addMonths, isInPeriod, lastMonths, monthAbbr, monthKeyOf, monthPeriod, shortDate, todayIso } from "@/lib/domain/dates";
+import { recurrenceKey } from "@/lib/domain/forecast";
 import { buildOccurrences, signedRecurrenceCents } from "@/lib/domain/recurrences";
 import { shortAccountName } from "@/lib/domain/accounts";
 import { formatCents, formatPercent } from "@/lib/domain/money";
@@ -83,16 +84,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const today = todayIso();
   const horizonEnd = new Date(Date.parse(`${today}T00:00:00Z`) + 60 * 86_400_000).toISOString().slice(0, 10);
   const accountById = new Map(accounts.map((a) => [a.id, a]));
+  // décisions du prévisionnel : échéances refusées masquées, montants et dates modifiés repris
+  const decisionByKey = new Map((await getForecastDecisions(monthKeyOf(today, startDay))).map((d) => [d.sourceKey, d]));
   const upcoming = [
     ...buildOccurrences(recurrences, txs, today, horizonEnd)
-      .filter((o) => o.status === "planned")
+      .filter((o) => o.status === "planned" && decisionByKey.get(recurrenceKey(o.recurrence.id, o.date))?.status !== "rejected")
       .filter((o) => !accountId || o.recurrence.accountId === accountId || o.recurrence.toAccountId === accountId)
       .map((o) => {
-        const r = o.recurrence;
+        const d = decisionByKey.get(recurrenceKey(o.recurrence.id, o.date));
+        const r = d?.amountCents ? { ...o.recurrence, amountCents: d.amountCents } : o.recurrence;
         const incoming = r.type === "transfer" && accountId !== null && r.toAccountId === accountId;
         return {
           key: o.key,
-          date: o.date,
+          date: d?.date ?? o.date,
           label: r.label,
           cents: r.type === "transfer" ? (incoming ? r.amountCents : -r.amountCents) : signedRecurrenceCents(r),
           transfer: r.type === "transfer",
