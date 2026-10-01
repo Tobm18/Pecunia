@@ -74,12 +74,29 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
 
   const decide = (l: PlanLine, status: "accepted" | "rejected") =>
     run(`${l.key}:${status}`, () => decideProposals([{ sourceKey: l.key, month, status }]));
-  const acceptAll = () =>
+  // Sélection (lignes à valider uniquement ; les lignes traitées en sortent d'elles-mêmes)
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const selection = toValidate.filter((l) => checked.has(l.key));
+  const allChecked = toValidate.length > 0 && selection.length === toValidate.length;
+  const toggle = (key: string) =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  const toggleAll = () => setChecked(allChecked ? new Set() : new Set(toValidate.map((l) => l.key)));
+  const plural = (n: number, word: string) => `${n} ligne${n > 1 ? "s" : ""} ${word}${n > 1 ? "s" : ""}`;
+  const decideMany = (targets: PlanLine[], status: "accepted" | "rejected", busyKey: string) =>
     run(
-      "all",
-      () => decideProposals(toValidate.map((l) => ({ sourceKey: l.key, month, status: "accepted" as const }))),
-      `${toValidate.length} ligne${toValidate.length > 1 ? "s" : ""} acceptée${toValidate.length > 1 ? "s" : ""}`,
+      busyKey,
+      async () => {
+        const r = await decideProposals(targets.map((l) => ({ sourceKey: l.key, month, status })));
+        if (r.ok) setChecked(new Set());
+        return r;
+      },
+      plural(targets.length, status === "accepted" ? "acceptée" : "refusée"),
     );
+  const acceptAll = () => decideMany(toValidate, "accepted", "all");
   const reset = (l: PlanLine) => run(`${l.key}:reset`, () => resetProposal(l.key));
   const isBusy = (key: string) => pending && busy === key;
 
@@ -124,13 +141,36 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
           <CardHeader
             title={`À valider · ${monthLabel(month)}`}
             action={
-              toValidate.length > 1 ? (
+              selection.length > 0 ? (
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button onClick={() => decideMany(selection, "rejected", "sel:rejected")} loading={isBusy("sel:rejected")} className="!text-danger-700">
+                    <X size={15} /> Refuser ({selection.length})
+                  </Button>
+                  <Button variant="primary" onClick={() => decideMany(selection, "accepted", "sel:accepted")} loading={isBusy("sel:accepted")}>
+                    <Check size={15} /> Accepter ({selection.length})
+                  </Button>
+                </div>
+              ) : toValidate.length > 1 ? (
                 <Button onClick={acceptAll} loading={isBusy("all")}>
                   <Check size={15} /> Tout accepter
                 </Button>
               ) : undefined
             }
           />
+          {toValidate.length > 1 && (
+            <label className="flex min-h-9 cursor-pointer items-center gap-3 border-b border-divider pb-2 text-xs font-semibold text-n-700">
+              <input
+                type="checkbox"
+                className="size-4 accent-[var(--accent)]"
+                checked={allChecked}
+                ref={(el) => {
+                  if (el) el.indeterminate = selection.length > 0 && !allChecked;
+                }}
+                onChange={toggleAll}
+              />
+              {selection.length > 0 ? `${selection.length} sélectionnée${selection.length > 1 ? "s" : ""} sur ${toValidate.length}` : "Tout sélectionner"}
+            </label>
+          )}
           {toValidate.length === 0 ? (
             <p className="text-sm text-n-600">
               Rien à valider ce mois-ci. Tes budgets sont proposés ici ; les échéances de tes récurrences sont retenues d&apos;office.
@@ -138,7 +178,21 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
           ) : (
             <ul className="divide-y divide-divider">
               {toValidate.map((l) => (
-                <Line key={l.key} label={l.label} meta={meta(l)} amount={amountOf(l)}>
+                <Line
+                  key={l.key}
+                  label={l.label}
+                  meta={meta(l)}
+                  amount={amountOf(l)}
+                  leading={
+                    <input
+                      type="checkbox"
+                      className="size-4 shrink-0 cursor-pointer accent-[var(--accent)]"
+                      checked={checked.has(l.key)}
+                      onChange={() => toggle(l.key)}
+                      aria-label={`Sélectionner ${l.label}`}
+                    />
+                  }
+                >
                   <IconButton label={`Accepter ${l.label}`} onClick={() => decide(l, "accepted")} loading={isBusy(`${l.key}:accepted`)} tone="accept">
                     <Check size={16} />
                   </IconButton>
@@ -273,9 +327,22 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
   );
 }
 
-function Line({ label, meta, amount, children }: { label: ReactNode; meta: string; amount: ReactNode; children: ReactNode }) {
+function Line({
+  label,
+  meta,
+  amount,
+  leading,
+  children,
+}: {
+  label: ReactNode;
+  meta: string;
+  amount: ReactNode;
+  leading?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <li className="flex items-center gap-3 py-2.5">
+      {leading}
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold">{label}</p>
         <p className="text-xs text-n-600 md:truncate">{meta}</p>
