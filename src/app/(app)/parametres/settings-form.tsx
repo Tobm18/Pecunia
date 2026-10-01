@@ -2,10 +2,12 @@
 
 import { Download, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useTransition, type ReactNode } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { signOut, updateProfile } from "@/lib/data/actions";
+import { deleteMyAccount } from "@/lib/data/planning-actions";
 import type { Profile } from "@/lib/domain/types";
-import { Card, Segmented, Select } from "@/components/ui/primitives";
+import { Button, Card, FieldError, Input, Label, Segmented, Select } from "@/components/ui/primitives";
+import { Modal } from "@/components/ui/overlay";
 import { useToast } from "@/components/ui/overlay";
 import { Spinner } from "@/components/ui/spinner";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -119,6 +121,9 @@ export function SettingsForm({ profile }: { profile: Profile }) {
               </SubmitButton>
             </form>
           </div>
+          <Row label="Supprimer le compte" hint="Efface définitivement toutes tes données">
+            <DeleteAccountButton email={profile.email} />
+          </Row>
         </div>
       </Card>
 
@@ -136,5 +141,58 @@ export function SettingsForm({ profile }: { profile: Profile }) {
         </div>
       </Card>
     </div>
+  );
+}
+
+/** Suppression définitive : confirmation en retapant l'email ou « SUPPRIMER ». */
+function DeleteAccountButton({ email }: { email: string }) {
+  const [open, setOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const valid = confirmation.trim() === "SUPPRIMER" || confirmation.trim().toLowerCase() === email.toLowerCase();
+
+  function submit() {
+    setError(null);
+    startTransition(async () => {
+      const r = await deleteMyAccount(confirmation);
+      // en cas de succès, l'action redirige vers l'écran de connexion
+      if (r && !r.ok) setError(r.error);
+    });
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="text-sm font-semibold text-danger-700 hover:underline">
+        Supprimer…
+      </button>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Supprimer le compte"
+        footer={
+          <>
+            <Button onClick={() => setOpen(false)}>Annuler</Button>
+            <Button variant="danger" onClick={submit} loading={pending} disabled={!valid}>
+              Supprimer définitivement
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm">
+            Comptes, transactions, catégories, budgets, récurrences et objectifs seront <strong>définitivement effacés</strong>. Pense à
+            faire une sauvegarde JSON avant.
+          </p>
+          <div>
+            <Label htmlFor="delete-confirm">
+              Pour confirmer, tape ton adresse email ({email}) ou <strong>SUPPRIMER</strong>
+            </Label>
+            <Input id="delete-confirm" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} autoComplete="off" />
+          </div>
+          <FieldError>{error}</FieldError>
+        </div>
+      </Modal>
+    </>
   );
 }

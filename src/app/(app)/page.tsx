@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { ArrowLeftRight, Banknote, PiggyBank, ShoppingCart, TrendingUp, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
-import { getAppData, getTransactions } from "@/lib/data/queries";
+import { getAppData, getForecastDecisions, getTransactions } from "@/lib/data/queries";
 import { getBudgetOverview, resolveMonth } from "@/lib/data/views";
-import { addMonths, isInPeriod, lastMonths, monthAbbr, monthPeriod } from "@/lib/domain/dates";
+import { addMonths, isInPeriod, lastMonths, monthAbbr, monthKeyOf, monthPeriod, shortDate, todayIso } from "@/lib/domain/dates";
+import { recurrenceKey } from "@/lib/domain/forecast";
+import { buildOccurrences, signedRecurrenceCents } from "@/lib/domain/recurrences";
+import { shortAccountName } from "@/lib/domain/accounts";
 import { formatCents, formatPercent } from "@/lib/domain/money";
 import { formatList } from "@/lib/domain/text";
 import {
@@ -41,7 +44,7 @@ const cardLink = "text-xs font-bold text-accent-700 hover:text-accent";
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const params = await searchParams;
-  const { profile, accounts, categories, balances } = await getAppData();
+  const { profile, accounts, categories, balances, recurrences, forecastItems } = await getAppData();
   const startDay = profile.monthStartDay;
   const { month, current } = resolveMonth(params.mois, startDay);
   const activeAccounts = accounts.filter((a) => !a.archivedAt);
@@ -76,6 +79,57 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     0,
   );
   const inBudgetNames = activeAccounts.filter((a) => a.inBudget).map((a) => a.name);
+
+  // À venir : 5 prochaines échéances (récurrences non réalisées + dépenses prévues)
+  const today = todayIso();
+  const horizonEnd = new Date(Date.parse(`${today}T00:00:00Z`) + 60 * 86_400_000).toISOString().slice(0, 10);
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  // décisions du prévisionnel : échéances refusées masquées, montants et dates modifiés repris
+  const decisionByKey = new Map((await getForecastDecisions(monthKeyOf(today, startDay))).map((d) => [d.sourceKey, d]));
+  const upcoming = [
+    ...buildOccurrences(recurrences, txs, today, horizonEnd)
+      .filter((o) => o.status === "planned" && decisionByKey.get(recurrenceKey(o.recurrence.id, o.date))?.status !== "rejected")
+      .filter((o) => !accountId || o.recurrence.accountId === accountId || o.recurrence.toAccountId === accountId)
+      .map((o) => {
+        const d = decisionByKey.get(recurrenceKey(o.recurrence.id, o.date));
+        const r = d?.amountCents ? { ...o.recurrence, amountCents: d.amountCents } : o.recurrence;
+        const incoming = r.type === "transfer" && accountId !== null && r.toAccountId === accountId;
+        return {
+          key: o.key,
+          date: d?.date ?? o.date,
+          label: r.label,
+          cents: r.type === "transfer" ? (incoming ? r.amountCents : -r.amountCents) : signedRecurrenceCents(r),
+          transfer: r.type === "transfer",
+          color: r.type === "transfer" ? "#98a1b0" : (categoryById.get(r.categoryId ?? "")?.color ?? "#98a1b0"),
+          meta: [r.categoryId ? categoryById.get(r.categoryId)?.name : "Virement", accountById.get(r.accountId) && shortAccountName(accountById.get(r.accountId)!)]
+            .filter(Boolean)
+            .join(" · "),
+        };
+      }),
+    ...forecastItems
+      .filter(
+        (f) =>
+          f.status === "planned" && f.date >= today && f.date <= horizonEnd && (!accountId || f.accountId === accountId || f.toAccountId === accountId),
+      )
+      .map((f) => {
+        const from = accountById.get(f.accountId);
+        const to = f.toAccountId ? accountById.get(f.toAccountId) : undefined;
+        return {
+          key: f.id,
+          date: f.date,
+          label: f.label,
+          // virement vu depuis le compte filtré : crédit si c'est le compte de destination
+          cents: f.toAccountId && accountId === f.toAccountId ? -f.amountCents : f.amountCents,
+          transfer: !!f.toAccountId,
+          color: f.toAccountId ? "#98a1b0" : "#e9a23b",
+          meta: f.toAccountId
+            ? ["Virement prévu", from && to && `${shortAccountName(from)} → ${shortAccountName(to)}`].filter(Boolean).join(" · ")
+            : ["Prévue", from && shortAccountName(from)].filter(Boolean).join(" · "),
+        };
+      }),
+  ]
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .slice(0, 5);
 
   const overs = budgets.alerts.filter((l) => l.status === "over").map((l) => l.category.name);
   const warns = budgets.alerts.filter((l) => l.status === "warn");
@@ -244,7 +298,29 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader title="À venir" action={<Link href="/prevision" className={cardLink}>Prévisionnel</Link>} />
+          {upcoming.length === 0 ? (
+            <EmptyState action={<Link href="/recurrences" className={cardLink}>Ajouter une récurrence</Link>}>
+              {accountId ? "Rien de prévu sur ce compte" : "Rien de prévu dans les 60 prochains jours"}
+            </EmptyState>
+          ) : (
+            <ul className="flex flex-col gap-2.5">
+              {upcoming.map((u) => (
+                <li key={u.key} className="flex items-center gap-3 text-sm">
+                  <span className="w-12 shrink-0 text-xs text-n-600">{shortDate(u.date)}</span>
+                  <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: u.color }} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{u.label}</p>
+                    <p className="truncate text-[11px] text-n-600">{u.meta}</p>
+                  </div>
+                  <Amount cents={u.cents} neutral={u.transfer && !accountId} className="text-xs" />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
         {budgets.alerts.length > 0 && (
           <Card>
             <CardHeader title="Alertes" action={<Link href="/budgets" className={cardLink}>Budgets</Link>} />

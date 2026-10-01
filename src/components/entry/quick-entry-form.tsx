@@ -6,9 +6,12 @@ import { useMemo, useRef, useState, useTransition, type FormEvent } from "react"
 import { createEntry, type BudgetAlert, type CreatedEntry } from "@/lib/data/actions";
 import { longDayMonth, todayIso } from "@/lib/domain/dates";
 import { needsNature, type EntryKind, type IncomeNature } from "@/lib/domain/entries";
-import { formatCents, formatPercent, sanitizeAmountInput } from "@/lib/domain/money";
+import { centsToInput, formatCents, formatPercent, parseAmountToCents, sanitizeAmountInput } from "@/lib/domain/money";
+import { findForecastMatch } from "@/lib/domain/forecast";
+import { isActiveOn } from "@/lib/domain/recurrences";
+import { normalizeText } from "@/lib/domain/csv-import";
 import { findPlace, suggestPlaces } from "@/lib/domain/places";
-import type { Account, Category } from "@/lib/domain/types";
+import type { Account, Category, Recurrence } from "@/lib/domain/types";
 import { iconFor } from "@/components/ui/icons";
 import { Spinner } from "@/components/ui/spinner";
 import { Banner, Button, FieldError, Input, Label, Segmented, Select } from "@/components/ui/primitives";
@@ -46,7 +49,7 @@ export function QuickEntryForm({
   onDone?: () => void;
   onCreated?: (entry: CreatedEntry & { date: string; categoryName: string | null }) => void;
 }) {
-  const { activeAccounts, activeCategories, placeMemory, balances, accountById, categoryById } = useAppData();
+  const { activeAccounts, activeCategories, placeMemory, balances, accountById, categoryById, recurrences, forecastItems } = useAppData();
   const toast = useToast();
   const amountRef = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
@@ -66,6 +69,9 @@ export function QuickEntryForm({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [budgetAlert, setBudgetAlert] = useState<BudgetAlert | null>(null);
+  /** Rapprochement : dépense prévue à lier, ou écartée pour cette saisie */
+  const [linkedForecastId, setLinkedForecastId] = useState<string | null>(null);
+  const [dismissedForecastId, setDismissedForecastId] = useState<string | null>(null);
 
   const account = accountId ? accountById.get(accountId) : undefined;
   const categories = useMemo(() => categoriesFor(kind, activeCategories), [kind, activeCategories]);
@@ -76,6 +82,38 @@ export function QuickEntryForm({
   );
   const showNature = needsNature(kind, account);
   const isSheet = variant === "sheet";
+
+  // Modèles rapides : récurrences actives (loyer, salaire, abonnements, virements d'épargne)
+  const templates = useMemo(() => {
+    const today = todayIso();
+    return recurrences
+      .filter((r) => isActiveOn(r, today) && accountById.get(r.accountId) && !accountById.get(r.accountId)!.archivedAt)
+      .slice(0, 10);
+  }, [recurrences, accountById]);
+
+  const forecastMatch = useMemo(() => {
+    if (kind === "transfer") return null;
+    const cents = parseAmountToCents(amount);
+    if (cents === null || cents <= 0) return null;
+    return findForecastMatch(
+      forecastItems.filter((f) => f.id !== dismissedForecastId),
+      { place, signedCents: kind === "out" ? -cents : cents, date, accountId },
+      normalizeText,
+    );
+  }, [kind, amount, place, date, accountId, forecastItems, dismissedForecastId]);
+  const linked = forecastMatch && linkedForecastId === forecastMatch.id ? forecastMatch : null;
+
+  function applyTemplate(r: Recurrence) {
+    setKind(r.type);
+    setAmount(centsToInput(r.amountCents));
+    setPlace(r.label);
+    setCategoryId(r.type === "transfer" ? null : r.categoryId);
+    setAccountId(r.accountId);
+    if (r.type === "transfer") setToAccountId(r.toAccountId ?? defaultTarget(activeAccounts, r.accountId)?.id);
+    setMemoryApplied(false);
+    setShowSuggestions(false);
+    setError(null);
+  }
 
   function applyMemory(entry: { place: string; categoryId: string | null; accountId: string }) {
     const cat = entry.categoryId ? categoryById.get(entry.categoryId) : undefined;
@@ -123,6 +161,8 @@ export function QuickEntryForm({
     setNature("income");
     setMemoryApplied(false);
     setShowSuggestions(false);
+    setLinkedForecastId(null);
+    setDismissedForecastId(null);
     amountRef.current?.focus();
   }
 
@@ -140,7 +180,7 @@ export function QuickEntryForm({
         nature,
         date,
         note,
-      }).catch(() => ({ ok: false as const, error: "Enregistrement impossible, réessaie dans un instant." }));
+      }, linked?.id ?? null).catch(() => ({ ok: false as const, error: "Enregistrement impossible, réessaie dans un instant." }));
       if (!result.ok) {
         setError(result.error);
         return;
@@ -229,6 +269,37 @@ export function QuickEntryForm({
         </Banner>
       )}
 
+      {forecastMatch &&
+        (linked ? (
+          <Banner
+            tone="success"
+            action={
+              <button type="button" onClick={() => setLinkedForecastId(null)} className="font-bold">
+                Annuler
+              </button>
+            }
+          >
+            Sera liée à la dépense prévue « {linked.label} » : elle passera à « réalisée ».
+          </Banner>
+        ) : (
+          <Banner
+            tone="info"
+            action={
+              <span className="flex shrink-0 gap-3 font-bold">
+                <button type="button" onClick={() => setLinkedForecastId(forecastMatch.id)} className="text-accent-700">
+                  Lier
+                </button>
+                <button type="button" onClick={() => setDismissedForecastId(forecastMatch.id)}>
+                  Ignorer
+                </button>
+              </span>
+            }
+          >
+            Correspond à une dépense prévue : « {forecastMatch.label} » du {longDayMonth(forecastMatch.date)} (
+            {formatCents(Math.abs(forecastMatch.amountCents))}).
+          </Banner>
+        ))}
+
       <div className={clsx("flex flex-col gap-3", !isSheet && "md:flex-row md:items-end")}>
         <Segmented value={kind} options={KIND_OPTIONS} onChange={changeKind} className={isSheet ? "w-full" : "md:w-auto"} />
         <div className="flex-1">
@@ -260,6 +331,31 @@ export function QuickEntryForm({
           </div>
         </div>
       </div>
+
+      {templates.length > 0 && (
+        <div>
+          {!isSheet && <Label>Modèles</Label>}
+          <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1" aria-label="Modèles rapides">
+            {templates.map((r) => {
+              const cat = r.categoryId ? categoryById.get(r.categoryId) : undefined;
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => applyTemplate(r)}
+                  className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border border-n-300 bg-surface px-3.5 text-sm font-semibold hover:bg-n-100 md:min-h-8 md:text-xs"
+                >
+                  <span
+                    className="size-2 rounded-full"
+                    style={{ backgroundColor: r.type === "transfer" ? (accountById.get(r.toAccountId ?? "")?.color ?? "#98a1b0") : (cat?.color ?? "#98a1b0") }}
+                  />
+                  {r.label} <span className="font-normal text-n-600">· {centsToInput(r.amountCents)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {kind === "transfer" ? (
         <>

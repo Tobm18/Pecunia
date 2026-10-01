@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { getAppData, getTransactions } from "@/lib/data/queries";
+import { getAppData, getGoals, getTransactions } from "@/lib/data/queries";
 import { resolveMonth } from "@/lib/data/views";
-import { addMonths, lastMonths, monthAbbr, monthPeriod } from "@/lib/domain/dates";
+import { addMonths, lastMonths, monthAbbr, monthPeriod, todayIso } from "@/lib/domain/dates";
+import { goalStatus } from "@/lib/domain/goals";
 import { ACCOUNT_TYPE_LABELS } from "@/lib/domain/defaults";
 import { formatCents } from "@/lib/domain/money";
 import { balanceSeriesFromCurrent } from "@/lib/domain/stats";
@@ -10,11 +11,12 @@ import { Sparkline } from "@/components/charts/sparkline";
 import { IconBadge } from "@/components/ui/icons";
 import { Card, PageHeader } from "@/components/ui/primitives";
 import { NewAccountButton, RestoreAccountButton } from "@/components/accounts/account-dialogs";
+import { GoalsSection } from "@/components/accounts/goals-section";
 
 export const metadata = { title: "Comptes" };
 
 export default async function AccountsPage() {
-  const { profile, accounts, balances } = await getAppData();
+  const [{ profile, accounts, balances, recurrences }, goals] = await Promise.all([getAppData(), getGoals()]);
   const startDay = profile.monthStartDay;
   const { current } = resolveMonth(undefined, startDay);
   const months = lastMonths(current, 12);
@@ -90,6 +92,12 @@ export default async function AccountsPage() {
           </Link>
         ))}
       </div>
+
+      <GoalsSection
+        statuses={goals.map((g) =>
+          goalStatus(g, balances.get(g.accountId)?.balanceCents ?? accounts.find((a) => a.id === g.accountId)?.initialBalanceCents ?? 0, recurrences, todayIso()),
+        )}
+      />
 
       {archived.length > 0 && (
         <Card>

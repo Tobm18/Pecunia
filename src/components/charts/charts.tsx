@@ -8,8 +8,12 @@ import {
   BarChart,
   Cell,
   LabelList,
+  Line,
+  LineChart,
   Pie,
   PieChart,
+  ReferenceArea,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -135,6 +139,34 @@ export function BalanceArea({
             isAnimationActive={false}
           />
         </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/** Solde projeté : une courbe par compte, zone rouge sous la ligne de zéro. */
+export function ForecastChart({
+  data,
+  series,
+}: {
+  data: Record<string, number | string>[];
+  series: { key: string; name: string; color: string }[];
+}) {
+  const values = data.flatMap((d) => series.map((s) => Number(d[s.key] ?? 0)));
+  const min = Math.min(0, ...values);
+  return (
+    <div className="h-56">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 8, right: 16, left: 16, bottom: 0 }}>
+          <XAxis dataKey="label" interval={0} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "var(--n-600)" }} />
+          <YAxis hide domain={[Math.min(min * 1.1, 0), "auto"]} />
+          {min < 0 && <ReferenceArea y1={min * 1.1} y2={0} fill="var(--danger)" fillOpacity={0.08} />}
+          <ReferenceLine y={0} stroke="var(--danger)" strokeDasharray="4 4" strokeOpacity={0.6} />
+          <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [formatCents(Number(v)), name]} />
+          {series.map((s) => (
+            <Line key={s.key} type="monotone" dataKey={s.key} name={s.name} stroke={s.color} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
+          ))}
+        </LineChart>
       </ResponsiveContainer>
     </div>
   );

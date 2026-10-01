@@ -77,3 +77,60 @@ export interface PlaceMemoryEntry {
   accountId: string;
   lastUsed: string;
 }
+
+export type RecurrenceFrequency = "weekly" | "monthly" | "quarterly" | "yearly";
+
+/** Modèle de mouvement répété (loyer, abonnement, salaire, virement d'épargne). */
+export interface Recurrence {
+  id: string;
+  type: "out" | "in" | "transfer";
+  label: string;
+  /** Toujours positif ; le sens vient du type */
+  amountCents: number;
+  categoryId: string | null;
+  accountId: string;
+  /** Compte de destination d'un virement */
+  toAccountId: string | null;
+  frequency: RecurrenceFrequency;
+  /** Jour d'échéance (1–31, ramené au dernier jour du mois si besoin) */
+  dueDay: number;
+  startDate: string;
+  endDate: string | null;
+  isSubscription: boolean;
+}
+
+/** Dépense ou revenu ponctuel prévu (montant signé). */
+export interface ForecastItem {
+  id: string;
+  accountId: string;
+  label: string;
+  amountCents: number;
+  date: string;
+  status: "planned" | "linked";
+  linkedTransactionId: string | null;
+  /** Lignes créées ensemble pour plusieurs mois */
+  seriesId: string | null;
+  /** Virement interne : compte crédité (amountCents, négatif, porte sur accountId) */
+  toAccountId: string | null;
+}
+
+/** Décision sur une proposition du prévisionnel (échéance ou budget) pour un mois. */
+export interface ForecastDecision {
+  id: string;
+  /** « rec:<récurrence>:<date> » ou « bud:<catégorie>:<mois> » */
+  sourceKey: string;
+  month: string;
+  status: "accepted" | "rejected";
+  /** Valeurs modifiées ; null = celles proposées */
+  amountCents: number | null;
+  accountId: string | null;
+  date: string | null;
+}
+
+export interface Goal {
+  id: string;
+  accountId: string;
+  name: string;
+  targetCents: number;
+  targetDate: string;
+}
