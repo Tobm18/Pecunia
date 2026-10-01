@@ -29,6 +29,8 @@ export interface PlanLine {
   viewCents: number;
   status: "pending" | "accepted" | "rejected" | "planned";
   modified: boolean;
+  /** Décision enregistrée (sinon : statut par défaut, récurrence acceptée ou budget à valider) */
+  decided: boolean;
   itemId: string | null;
   seriesId: string | null;
 }
@@ -131,7 +133,7 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
           />
           {toValidate.length === 0 ? (
             <p className="text-sm text-n-600">
-              Rien à valider ce mois-ci. Les propositions viennent de tes récurrences et de tes budgets.
+              Rien à valider ce mois-ci. Tes budgets sont proposés ici ; les échéances de tes récurrences sont retenues d&apos;office.
             </p>
           ) : (
             <ul className="divide-y divide-divider">
@@ -163,7 +165,7 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
           />
           {retained.length === 0 ? (
             <p className="text-sm text-n-600">
-              Accepte des propositions ou ajoute une entrée / sortie prévue, pour ce mois seulement ou pour plusieurs mois.
+              Accepte des budgets ou ajoute une entrée / sortie prévue, pour ce mois seulement ou pour plusieurs mois.
             </p>
           ) : (
             <ul className="divide-y divide-divider">
@@ -172,7 +174,17 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
                   <IconButton label={`Modifier ${l.label}`} onClick={() => openEdit(l)}>
                     <Pencil size={15} />
                   </IconButton>
-                  {l.kind !== "planned" && (
+                  {l.kind === "recurrence" && (
+                    <IconButton label={`Refuser ${l.label}`} onClick={() => decide(l, "rejected")} loading={isBusy(`${l.key}:rejected`)} tone="reject">
+                      <X size={16} />
+                    </IconButton>
+                  )}
+                  {l.kind === "recurrence" && l.decided && (
+                    <IconButton label={`Revenir aux valeurs de ${l.label}`} onClick={() => reset(l)} loading={isBusy(`${l.key}:reset`)}>
+                      <RotateCcw size={15} />
+                    </IconButton>
+                  )}
+                  {l.kind === "budget" && (
                     <IconButton label={`Remettre ${l.label} à valider`} onClick={() => reset(l)} loading={isBusy(`${l.key}:reset`)}>
                       <RotateCcw size={15} />
                     </IconButton>
@@ -269,7 +281,7 @@ function Line({ label, meta, amount, children }: { label: ReactNode; meta: strin
         <p className="text-xs text-n-600 md:truncate">{meta}</p>
       </div>
       <span className="text-sm">{amount}</span>
-      <div className="flex min-w-[76px] shrink-0 justify-end gap-1">{children}</div>
+      <div className="flex min-w-[116px] shrink-0 justify-end gap-1">{children}</div>
     </li>
   );
 }

@@ -119,41 +119,41 @@ describe("prévisionnel", () => {
       budgets,
     });
 
-  it("propose les échéances non réalisées et le reste des budgets, sans rien compter d'office", () => {
+  it("échéances non réalisées acceptées d'office, reste des budgets à valider", () => {
     const { months, alerts } = run([]);
     const sept = months[0]!;
     expect(sept.proposals.map((p) => [p.key, p.amountCents, p.status])).toEqual([
-      ["rec:epargne:2026-09-02", 30000, "pending"],
-      ["rec:loyer:2026-09-10", 50000, "pending"],
+      ["rec:epargne:2026-09-02", 30000, "accepted"],
+      ["rec:loyer:2026-09-10", 50000, "accepted"],
       ["bud:courses:2026-09", 30000, "pending"], // 400 − 100 dépensés ; logement couvert par le loyer
     ]);
     expect(sept.realized.map((o) => o.recurrence.id)).toEqual(["salaire"]);
-    expect(sept.pendingCount).toBe(3);
-    expect(sept.perAccount.courant!.endBalanceCents).toBe(20000);
+    expect(sept.pendingCount).toBe(1);
+    expect(sept.perAccount.courant!.endBalanceCents).toBe(20000 - 30000 - 50000);
     expect(sept.perAccount.courant!.endIfAllCents).toBe(20000 - 30000 - 50000 - 30000);
-    // seule l'assurance prévue (saisie à la main) compte en octobre
-    expect(alerts).toEqual([{ accountId: "courant", month: "2026-10", balanceCents: 20000 - 120000 }]);
+    expect(sept.perAccount.livret!.endBalanceCents).toBe(130000);
+    expect(alerts).toEqual([{ accountId: "courant", month: "2026-09", balanceCents: -60000 }]);
   });
 
   it("acceptée, modifiée ou refusée : seules les lignes retenues et les lignes prévues comptent", () => {
     const { months, alerts } = run([
-      decision("rec:loyer:2026-09-10", "accepted"),
+      decision("rec:loyer:2026-09-10", "rejected"),
       decision("rec:epargne:2026-09-02", "accepted", { amountCents: 10000 }),
       decision("bud:courses:2026-09", "rejected"),
       decision("rec:salaire:2026-10-01", "accepted", { month: "2026-10", amountCents: 160000, date: "2026-10-03" }),
     ]);
     const sept = months[0]!;
     expect(sept.proposals.find((p) => p.key === "rec:epargne:2026-09-02")).toMatchObject({ status: "accepted", modified: true, amountCents: 10000 });
-    expect(sept.perAccount.courant!.endBalanceCents).toBe(20000 - 50000 - 10000);
+    expect(sept.perAccount.courant!.endBalanceCents).toBe(20000 - 10000);
     expect(sept.perAccount.livret!.endBalanceCents).toBe(110000);
-    expect(alerts).toEqual([{ accountId: "courant", month: "2026-09", balanceCents: -40000 }]);
+    expect(alerts).toEqual([{ accountId: "courant", month: "2026-10", balanceCents: 10000 + 160000 - 50000 - 30000 - 120000 }]);
 
     const oct = months[1]!;
     expect(oct.proposals.find((p) => p.key === "rec:salaire:2026-10-01")).toMatchObject({ date: "2026-10-03", modified: true });
-    // salaire modifié + assurance prévue ; le reste est à valider
-    expect(oct.perAccount.courant!.netCents).toBe(160000 - 120000);
-    expect(oct.perAccount.courant!).toMatchObject({ inCents: 160000, outCents: 120000 });
-    expect(oct.pendingCount).toBe(3);
+    // salaire modifié, loyer et virement d'office, assurance prévue ; les budgets sont à valider
+    expect(oct.perAccount.courant!.netCents).toBe(160000 - 50000 - 30000 - 120000);
+    expect(oct.perAccount.courant!).toMatchObject({ inCents: 160000, outCents: 200000 });
+    expect(oct.pendingCount).toBe(1);
   });
 
   it("répète une ligne prévue sur plusieurs mois", () => {

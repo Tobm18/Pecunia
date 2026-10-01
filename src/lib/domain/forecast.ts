@@ -1,11 +1,11 @@
 /**
  * Prévisionnel validé à la main.
  *
- * Pour chaque mois, l'application **propose** des lignes : les échéances des récurrences
- * pas encore réalisées et une ligne par budget de dépense (hors part déjà couverte par une
- * récurrence ; pour le mois en cours, seulement le reste à dépenser). Chaque proposition est
- * à valider : acceptée (éventuellement modifiée) ou refusée. S'y ajoutent les lignes prévues
- * saisies à la main (entrées / sorties, éventuellement sur plusieurs mois).
+ * Pour chaque mois : les échéances des récurrences pas encore réalisées sont **acceptées
+ * d'office** (refusables ou modifiables), et une ligne par budget de dépense est **proposée**
+ * (hors part déjà couverte par une récurrence ; pour le mois en cours, seulement le reste à
+ * dépenser) : à accepter (éventuellement modifiée) ou refuser. S'y ajoutent les lignes
+ * prévues saisies à la main (entrées / sorties, éventuellement sur plusieurs mois).
  *
  * Solde fin de mois = solde de début + propositions acceptées + lignes prévues.
  * Les propositions à valider ne comptent pas : elles donnent seulement le solde « si tout
@@ -36,6 +36,8 @@ export interface Proposal {
   date: IsoDate | null;
   status: ProposalStatus;
   modified: boolean;
+  /** Une décision est enregistrée (sinon : statut par défaut de la source) */
+  decided: boolean;
 }
 
 export interface AccountMonth {
@@ -99,7 +101,7 @@ export function buildForecast(params: {
   const mainAccount =
     active.find((a) => a.type === "current" && a.inBudget) ?? active.find((a) => a.inBudget) ?? active[0];
 
-  const decide = (base: Omit<Proposal, "amountCents" | "date" | "status" | "modified">): Proposal => {
+  const decide = (base: Omit<Proposal, "amountCents" | "date" | "status" | "modified" | "decided">): Proposal => {
     const d = decisionByKey.get(base.key);
     const accountId = d?.accountId && activeIds.has(d.accountId) && base.type !== "transfer" ? d.accountId : base.accountId;
     const amountCents = d?.amountCents ?? base.proposedCents;
@@ -109,7 +111,9 @@ export function buildForecast(params: {
       accountId,
       amountCents,
       date,
-      status: d?.status ?? "pending",
+      // récurrences acceptées d'office, budgets à valider
+      status: d?.status ?? (base.source === "recurrence" ? "accepted" : "pending"),
+      decided: !!d,
       modified: !!d && (amountCents !== base.proposedCents || date !== base.proposedDate || accountId !== base.accountId),
     };
   };

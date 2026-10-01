@@ -82,6 +82,7 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
         viewCents: viewOf(effects),
         status: p.status,
         modified: p.modified,
+        decided: p.decided,
         itemId: null,
         seriesId: null,
       })),
@@ -102,6 +103,7 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
         viewCents: f.amountCents,
         status: "planned",
         modified: false,
+        decided: true,
         itemId: f.id,
         seriesId: f.seriesId,
       })),
@@ -172,8 +174,8 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
         <h2 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-n-700">Solde projeté en fin de mois</h2>
         <ForecastChart data={chartData} series={shown.map((a) => ({ key: a.id, name: a.name, color: a.color }))} />
         <p className="mt-2 text-[11px] text-n-600">
-          Solde actuel + lignes validées (récurrences et budgets acceptés) + entrées / sorties prévues. Les propositions à valider ne
-          sont pas comptées.
+          Solde actuel + échéances des récurrences (retenues d&apos;office, sauf refus) + budgets acceptés + entrées / sorties prévues.
+          Les budgets à valider ne sont pas comptés.
         </p>
       </Card>
 
