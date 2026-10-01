@@ -177,7 +177,7 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
         </p>
       </Card>
 
-      <nav aria-label="Mois" className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 md:mx-0 md:px-0">
+      <nav aria-label="Mois" className="no-scrollbar -mx-4 -mt-2 flex gap-2 overflow-x-auto px-4 pt-2 md:mx-0 md:pl-0 md:pr-2">
         {months.map((m, i) => {
           const end = sumShown((id) => m.perAccount[id]!.endBalanceCents);
           const pending = m.proposals.filter((p) => p.status === "pending" && touches(proposalEffects(p))).length;
