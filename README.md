@@ -111,6 +111,16 @@ Conseil : importer d'abord le compte courant (les virements vers l'épargne cré
 - [x] Tableau de bord : bloc **« À venir »** (5 prochaines échéances et dépenses prévues)
 - [x] **Suppression du compte utilisateur** (Paramètres), confirmée par l'email ou « SUPPRIMER » ; nécessite la migration `20260930000000_delete_account.sql`
 
+### Interface et mouvement
+
+Principes d'interface « fluide » à la manière d'Apple (`src/lib/motion/spring.ts`) :
+
+- **Ressorts** définis par un amortissement et une réactivité, sans rebond par défaut, interruptibles et repris depuis la position affichée (une modale en train de se fermer peut être rattrapée).
+- **Feuilles mobiles** : entrée et sortie par le même chemin, poignée pour tirer vers le bas, suivi 1:1, résistance élastique vers le haut, l'élan au lâcher décide entre fermer et revenir.
+- **Glisser pour supprimer** une transaction (écrans tactiles) : seuil de 10 px avant de choisir entre glisser et défiler, projection de l'élan, vibration discrète au seuil.
+- **Retour immédiat** à l'appui sur les boutons, puces et lignes ; barre du bas en matériau translucide ; typographie resserrée sur les grands textes.
+- Préférences système respectées : réduire les animations (fondus), réduire la transparence, contraste élevé.
+
 ### Restant
 
-- [ ] Passkey (WebAuthn), glisser pour supprimer (mobile), mode hors connexion
+- [ ] Passkey (WebAuthn), mode hors connexion

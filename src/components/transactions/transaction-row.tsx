@@ -47,7 +47,7 @@ export function TransactionRow({
     <button
       type="button"
       onClick={onClick}
-      className={clsx("flex w-full items-center gap-3 px-4 py-3 text-left", onClick && "hover:bg-n-100")}
+      className={clsx("flex w-full items-center gap-3 bg-surface px-4 py-3 text-left", onClick && "hover:bg-n-100 active:bg-n-100")}
     >
       <IconBadge icon={icon} color={color} />
       <div className="min-w-0 flex-1">

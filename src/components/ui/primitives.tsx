@@ -1,5 +1,6 @@
 /** Briques d'interface partagées (boutons, cartes, champs, segments, puces, barres). */
 import { clsx } from "clsx";
+import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode, SelectHTMLAttributes } from "react";
 import type { BudgetStatus } from "@/lib/domain/budgets";
 import { Spinner } from "./spinner";
@@ -8,7 +9,7 @@ type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
 export function buttonClass(variant: ButtonVariant = "secondary", extra?: string) {
   return clsx(
-    "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] px-3.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45 md:min-h-9",
+    "inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] px-3.5 text-sm font-semibold transition-[color,background-color,border-color,box-shadow,transform] duration-100 ease-out motion-safe:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100 md:min-h-9",
     variant === "primary" && "bg-accent text-on-accent hover:bg-accent-600",
     variant === "secondary" && "border border-n-300 bg-surface text-text hover:bg-n-100",
     variant === "ghost" && "text-accent-700 hover:bg-accent-100",
@@ -117,7 +118,7 @@ export function Segmented<T extends string>({
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
           className={clsx(
-            "flex-1 whitespace-nowrap rounded-lg font-semibold transition-colors",
+            "flex-1 whitespace-nowrap rounded-lg font-semibold transition-[color,background-color,border-color,box-shadow,transform] duration-100 ease-out motion-safe:active:scale-[0.97]",
             size === "sm" ? "min-h-8 px-2.5 text-xs" : "min-h-10 px-3 text-sm md:min-h-8",
             value === o.value ? "bg-surface text-text shadow-card" : "text-n-700 hover:text-text",
           )}
@@ -144,7 +145,7 @@ export function Chip({
   href?: string;
 }) {
   const className = clsx(
-    "inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-sm font-semibold transition-colors md:min-h-8 md:px-3 md:text-xs",
+    "inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-sm font-semibold transition-[color,background-color,border-color,box-shadow,transform] duration-100 ease-out motion-safe:active:scale-[0.97] md:min-h-8 md:px-3 md:text-xs",
     active ? "border-ink bg-ink text-on-ink" : "border-n-300 bg-surface text-text hover:bg-n-100",
   );
   const content = (
@@ -155,9 +156,9 @@ export function Chip({
   );
   if (href) {
     return (
-      <a href={href} className={className} aria-current={active ? "true" : undefined}>
+      <Link href={href} className={className} aria-current={active ? "true" : undefined} scroll={false}>
         {content}
-      </a>
+      </Link>
     );
   }
   return (

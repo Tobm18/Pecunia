@@ -39,6 +39,17 @@ export function SettingsForm({ profile }: { profile: Profile }) {
     });
   }
 
+  // Réponse immédiate : le thème s'applique tout de suite (fondu court), l'enregistrement suit
+  function changeTheme(theme: Profile["theme"]) {
+    const apply = () => {
+      document.documentElement.dataset.theme = theme;
+    };
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if ("startViewTransition" in document && !reduce) document.startViewTransition(apply);
+    else apply();
+    save({ theme });
+  }
+
   const lastBackup = profile.lastBackupAt
     ? new Date(profile.lastBackupAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })
     : "jamais";
@@ -74,7 +85,7 @@ export function SettingsForm({ profile }: { profile: Profile }) {
           <Row label="Thème">
             <Segmented
               value={profile.theme}
-              onChange={(theme) => save({ theme })}
+              onChange={changeTheme}
               options={[
                 { value: "light", label: "Clair" },
                 { value: "dark", label: "Sombre" },

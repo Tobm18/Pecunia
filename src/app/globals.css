@@ -111,6 +111,19 @@
   --shadow-modal: var(--shadow-lg);
   --radius-card: 16px;
   --radius-field: 10px;
+
+  /* Typographie : approche (tracking) et interligne propres à chaque taille. Les grands
+     textes se resserrent, le texte courant reste neutre. */
+  --text-lg--letter-spacing: -0.008em;
+  --text-xl--letter-spacing: -0.012em;
+  --text-2xl--letter-spacing: -0.016em;
+  --text-2xl--line-height: 1.2;
+  --text-3xl--letter-spacing: -0.022em;
+  --text-3xl--line-height: 1.12;
+  --text-4xl--letter-spacing: -0.026em;
+  --text-4xl--line-height: 1.06;
+  --text-5xl--letter-spacing: -0.03em;
+  --text-5xl--line-height: 1.02;
 }
 
 html,
@@ -119,15 +132,16 @@ body {
   color: var(--text);
 }
 
+html {
+  /* retour visuel géré par l'app (états :active) ; pas de délai de 300 ms au toucher */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
 body {
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "tnum" 1; /* chiffres tabulaires pour les montants */
-}
-
-h1,
-h2,
-h3 {
-  letter-spacing: -0.025em;
+  font-optical-sizing: auto;
 }
 
 :focus-visible {
@@ -155,4 +169,79 @@ input[type="checkbox"] {
 
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ---------------------------------------------------------------------------
+   Matériaux : couche translucide flottante, le contenu défile dessous.
+   Arête claire en haut = la lumière qui accroche la matière.
+   --------------------------------------------------------------------------- */
+.material-bar {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 55%, transparent), 0 -1px 0 var(--divider);
+}
+[data-theme="dark"] .material-bar {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent), 0 -1px 0 var(--divider);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .material-bar {
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (prefers-contrast: more) {
+  .material-bar {
+    background: var(--surface);
+    box-shadow: 0 -1px 0 var(--n-700);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Toasts : montent du bas et repartent par le même chemin
+   --------------------------------------------------------------------------- */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+.toast-in {
+  animation: toast-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.toast-out {
+  /* courbe inverse de l'entrée : le retour suit le même chemin */
+  animation: toast-out 220ms cubic-bezier(0.7, 0, 0.8, 0.1) both;
+}
+
+/* Changement de thème : fondu court plutôt qu'un saut brutal de luminosité */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 260ms;
+}
+
+/* Réduire les animations : fondus, aucun déplacement ni rebond */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes toast-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  .toast-in {
+    animation: toast-fade 200ms ease both;
+  }
+  .toast-out {
+    animation: toast-fade 200ms ease reverse both;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
 }

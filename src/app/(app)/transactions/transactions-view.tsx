@@ -11,6 +11,8 @@ import { shortAccountName } from "@/lib/domain/accounts";
 import { groupByDay, signedTotal } from "@/lib/domain/stats";
 import type { Transaction } from "@/lib/domain/types";
 import { TransactionRow } from "@/components/transactions/transaction-row";
+import { SwipeActions } from "@/components/ui/swipe-actions";
+import { deleteTransaction } from "@/lib/data/actions";
 import { EditTransactionModal } from "@/components/transactions/edit-transaction-modal";
 
 type TypeFilter = "all" | "out" | "in" | "transfer";
@@ -111,14 +113,20 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
                 <ul className="divide-y divide-divider">
                   {g.items.map((t) => (
                     <li key={t.id}>
-                      <TransactionRow
-                        tx={t}
-                        consolidated={!accountId}
-                        category={t.categoryId ? categoryById.get(t.categoryId) : undefined}
-                        account={accountById.get(t.accountId)}
-                        counterpart={t.counterpartAccountId ? accountById.get(t.counterpartAccountId) : undefined}
-                        onClick={() => setEditing(t)}
-                      />
+                      <SwipeActions
+                        label={`Supprimer ${t.place || "la transaction"}`}
+                        successMessage={t.type === "transfer" ? "Virement supprimé" : "Transaction supprimée"}
+                        onDelete={() => deleteTransaction(t.id)}
+                      >
+                        <TransactionRow
+                          tx={t}
+                          consolidated={!accountId}
+                          category={t.categoryId ? categoryById.get(t.categoryId) : undefined}
+                          account={accountById.get(t.accountId)}
+                          counterpart={t.counterpartAccountId ? accountById.get(t.counterpartAccountId) : undefined}
+                          onClick={() => setEditing(t)}
+                        />
+                      </SwipeActions>
                     </li>
                   ))}
                 </ul>

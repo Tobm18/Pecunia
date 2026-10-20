@@ -123,8 +123,9 @@ export function BottomNav() {
         href={item.href}
         aria-current={active ? "page" : undefined}
         className={clsx(
-          "flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold",
-          active ? "text-accent" : "text-n-600",
+          "flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition-transform duration-100 motion-safe:active:scale-95",
+          // sur matériau translucide : couleurs plus contrastées (vibrance)
+          active ? "text-accent-700" : "text-n-700",
         )}
       >
         <item.icon size={21} />
@@ -135,7 +136,7 @@ export function BottomNav() {
   return (
     <>
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 flex items-end border-t border-divider bg-surface/95 px-2 pb-safe backdrop-blur lg:hidden"
+        className="material-bar fixed inset-x-0 bottom-0 z-40 flex items-end px-2 pb-safe lg:hidden"
         aria-label="Navigation principale"
       >
         {tab({ href: "/", label: "Accueil", icon: LayoutGrid })}
@@ -144,7 +145,7 @@ export function BottomNav() {
           <button
             type="button"
             onClick={() => setEntryOpen(true)}
-            className="-mt-6 mb-2 flex size-14 items-center justify-center rounded-2xl bg-accent text-on-accent shadow-pop ring-4 ring-bg"
+            className="-mt-6 mb-2 flex size-14 items-center justify-center rounded-2xl bg-accent text-on-accent shadow-pop ring-4 ring-bg transition-transform duration-100 ease-out motion-safe:active:scale-[0.92]"
             aria-label="Nouvelle saisie"
           >
             <Plus size={28} strokeWidth={2.4} />
@@ -175,7 +176,7 @@ export function MoreMenu() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="absolute top-4 right-3 z-10 flex size-11 items-center justify-center rounded-full text-n-700 hover:bg-n-200 lg:hidden"
+        className="absolute top-4 right-3 z-10 flex size-11 items-center justify-center rounded-full text-n-700 hover:bg-n-200 active:bg-n-200 lg:hidden"
         aria-label="Plus"
       >
         <Menu size={22} />
