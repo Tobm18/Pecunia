@@ -59,7 +59,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
         <MonthSwitcher path="/analyses" month={month} current={current} params={{ categorie: params.categorie }} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <p className="text-xs font-semibold text-n-700">Taux d&apos;épargne</p>
           <p className="mt-1 text-3xl font-extrabold tabular-nums text-accent-700">
@@ -78,7 +78,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader title="Vs le mois dernier" />
           {comparison.length === 0 ? (
@@ -134,7 +134,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <Card>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-[11px] font-bold uppercase tracking-wider text-n-700">Évolution d&apos;une catégorie · 12 mois</h2>
@@ -150,7 +150,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
             <ol className="flex flex-col gap-2.5">
               {places.map((p, i) => (
                 <li key={p.place} className="flex items-center gap-3 text-sm">
-                  <span className="w-4 text-xs text-n-500">{i + 1}</span>
+                  <span className="w-4 text-xs text-n-600">{i + 1}</span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold">{p.place}</p>
                     <p className="text-[11px] text-n-600">

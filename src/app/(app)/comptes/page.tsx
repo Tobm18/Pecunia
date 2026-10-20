@@ -44,7 +44,7 @@ export default async function AccountsPage() {
       </div>
 
       <Card>
-        <div className="grid gap-4 md:grid-cols-[260px_1fr] md:items-end">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[260px_minmax(0,1fr)] md:items-end">
           <div>
             <p className="text-sm font-semibold text-n-700">Patrimoine total</p>
             <p className="text-4xl font-extrabold tabular-nums">{formatCents(total)}</p>
@@ -71,7 +71,7 @@ export default async function AccountsPage() {
         </div>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {rows.map(({ account, balance, delta, series }) => (
           <Link key={account.id} href={`/comptes/${account.id}`} className="rounded-card bg-surface p-4 shadow-card transition-shadow hover:shadow-pop">
             <div className="flex items-center gap-2.5">

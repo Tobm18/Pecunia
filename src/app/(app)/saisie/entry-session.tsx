@@ -22,7 +22,7 @@ export function EntrySession() {
   const [entries, setEntries] = useState<SessionEntry[]>([]);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
       <Card>
         <QuickEntryForm
           variant="page"

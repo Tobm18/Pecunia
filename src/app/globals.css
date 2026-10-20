@@ -19,7 +19,7 @@
   --n-300: #dde1e7;
   --n-400: #c2c8d2;
   --n-500: #98a1b0;
-  --n-600: #737d8d;
+  --n-600: #636c7b; /* texte secondaire : ≥ 4,5:1 sur blanc et sur le fond */
   --n-700: #586274;
   --n-800: #3b4454;
   --n-900: #252c38;
@@ -29,6 +29,9 @@
   --danger: #e5574f;
   --danger-100: #fdecea;
   --danger-700: #b8322b;
+  --danger-solid: #c43d35; /* fond des boutons / toasts d'erreur, texte blanc ≥ 4,5:1 */
+  --on-accent: #ffffff; /* texte et icônes posés sur l'accent */
+  --on-warn: #1d2433; /* texte posé sur l'orange d'alerte */
   --ink: #1d2433; /* puces actives, fond sombre des sélections */
   --on-ink: #ffffff;
   --shadow-sm: 0 1px 2px rgba(29, 36, 51, 0.05), 0 1px 3px rgba(29, 36, 51, 0.06);
@@ -52,7 +55,7 @@
   --n-200: #222935;
   --n-300: #2e3644;
   --n-400: #465063;
-  --n-500: #6b7588;
+  --n-500: #838da0; /* ≥ 4,5:1 sur la surface sombre */
   --n-600: #8d96a7;
   --n-700: #aab2c0;
   --n-800: #cdd3dc;
@@ -61,6 +64,8 @@
   --warn-800: #f3c77a;
   --danger-100: #3b1c1b;
   --danger-700: #f08a84;
+  /* l'accent clair du thème sombre impose un texte foncé (blanc : 2,9:1) */
+  --on-accent: #0b1f1b;
   --ink: #e8ebf0;
   --on-ink: #11151c;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -76,6 +81,9 @@
   --color-text: var(--text);
   --color-divider: var(--divider);
   --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-on-warn: var(--on-warn);
+  --color-danger-solid: var(--danger-solid);
   --color-accent-100: var(--accent-100);
   --color-accent-200: var(--accent-200);
   --color-accent-500: var(--accent-500);
@@ -103,6 +111,19 @@
   --shadow-modal: var(--shadow-lg);
   --radius-card: 16px;
   --radius-field: 10px;
+
+  /* Typographie : approche (tracking) et interligne propres à chaque taille. Les grands
+     textes se resserrent, le texte courant reste neutre. */
+  --text-lg--letter-spacing: -0.008em;
+  --text-xl--letter-spacing: -0.012em;
+  --text-2xl--letter-spacing: -0.016em;
+  --text-2xl--line-height: 1.2;
+  --text-3xl--letter-spacing: -0.022em;
+  --text-3xl--line-height: 1.12;
+  --text-4xl--letter-spacing: -0.026em;
+  --text-4xl--line-height: 1.06;
+  --text-5xl--letter-spacing: -0.03em;
+  --text-5xl--line-height: 1.02;
 }
 
 html,
@@ -111,15 +132,16 @@ body {
   color: var(--text);
 }
 
+html {
+  /* retour visuel géré par l'app (états :active) ; pas de délai de 300 ms au toucher */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
 body {
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "tnum" 1; /* chiffres tabulaires pour les montants */
-}
-
-h1,
-h2,
-h3 {
-  letter-spacing: -0.025em;
+  font-optical-sizing: auto;
 }
 
 :focus-visible {
@@ -147,4 +169,79 @@ input[type="checkbox"] {
 
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ---------------------------------------------------------------------------
+   Matériaux : couche translucide flottante, le contenu défile dessous.
+   Arête claire en haut = la lumière qui accroche la matière.
+   --------------------------------------------------------------------------- */
+.material-bar {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 55%, transparent), 0 -1px 0 var(--divider);
+}
+[data-theme="dark"] .material-bar {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent), 0 -1px 0 var(--divider);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .material-bar {
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (prefers-contrast: more) {
+  .material-bar {
+    background: var(--surface);
+    box-shadow: 0 -1px 0 var(--n-700);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Toasts : montent du bas et repartent par le même chemin
+   --------------------------------------------------------------------------- */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+.toast-in {
+  animation: toast-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.toast-out {
+  /* courbe inverse de l'entrée : le retour suit le même chemin */
+  animation: toast-out 220ms cubic-bezier(0.7, 0, 0.8, 0.1) both;
+}
+
+/* Changement de thème : fondu court plutôt qu'un saut brutal de luminosité */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 260ms;
+}
+
+/* Réduire les animations : fondus, aucun déplacement ni rebond */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes toast-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  .toast-in {
+    animation: toast-fade 200ms ease both;
+  }
+  .toast-out {
+    animation: toast-fade 200ms ease reverse both;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
 }

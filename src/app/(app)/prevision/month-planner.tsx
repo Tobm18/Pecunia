@@ -66,9 +66,11 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
     setBusy(key);
     startTransition(async () => {
       const r = await action();
-      setBusy(null);
-      if (!r.ok) toast(r.error, "error");
-      else if (success) toast(success);
+      startTransition(() => {
+        setBusy(null);
+        if (!r.ok) toast(r.error, "error");
+        else if (success) toast(success);
+      });
     });
   }
 
@@ -91,7 +93,7 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
       busyKey,
       async () => {
         const r = await decideProposals(targets.map((l) => ({ sourceKey: l.key, month, status })));
-        if (r.ok) setChecked(new Set());
+        if (r.ok) startTransition(() => setChecked(new Set()));
         return r;
       },
       plural(targets.length, status === "accepted" ? "acceptée" : "refusée"),
@@ -428,8 +430,10 @@ function ProposalModal({
           accountId: line.type !== "transfer" && accountId !== line.accountId ? accountId : null,
         },
       ]);
-      if (!r.ok) return setError(r.error);
-      onClose();
+      startTransition(() => {
+        if (!r.ok) return setError(r.error);
+        onClose();
+      });
     });
   }
 
@@ -525,10 +529,12 @@ function PlannedModal({
     setBusy(key);
     startTransition(async () => {
       const r = await action();
-      setBusy(null);
-      if (!r.ok) return setError(r.error);
-      toast(success);
-      onClose();
+      startTransition(() => {
+        setBusy(null);
+        if (!r.ok) return setError(r.error);
+        toast(success);
+        onClose();
+      });
     });
   }
 

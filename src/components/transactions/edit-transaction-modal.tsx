@@ -77,9 +77,11 @@ export function EditTransactionModal({
     setAction("save");
     startTransition(async () => {
       const result = await updateTransaction(tx!.id, form!);
-      if (!result.ok) return setError(result.error);
-      toast("Transaction modifiée");
-      onClose();
+      startTransition(() => {
+        if (!result.ok) return setError(result.error);
+        toast("Transaction modifiée");
+        onClose();
+      });
     });
   }
 
@@ -88,9 +90,11 @@ export function EditTransactionModal({
     setAction("delete");
     startTransition(async () => {
       const result = await deleteTransaction(tx!.id);
-      if (!result.ok) return setError(result.error);
-      toast("Transaction supprimée");
-      onClose();
+      startTransition(() => {
+        if (!result.ok) return setError(result.error);
+        toast("Transaction supprimée");
+        onClose();
+      });
     });
   }
 

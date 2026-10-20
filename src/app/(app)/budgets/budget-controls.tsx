@@ -7,6 +7,7 @@ import { centsToInput, formatCents, parseAmountToCents, sanitizeAmountInput } fr
 import type { BudgetMode } from "@/lib/domain/types";
 import { Modal, useToast } from "@/components/ui/overlay";
 import { Button, FieldError, Input, Label, Segmented } from "@/components/ui/primitives";
+import { Spinner } from "@/components/ui/spinner";
 
 /** Ligne cliquable ouvrant l'édition du budget d'une catégorie (montant fixe ou % du revenu). */
 export function BudgetEditButton({
@@ -43,9 +44,11 @@ export function BudgetEditButton({
     setAction(amount ? "save" : "delete");
     startTransition(async () => {
       const r = await saveBudget({ categoryId, mode, amount });
-      if (!r.ok) return setError(r.error);
-      toast(amount ? `Budget ${categoryName} enregistré` : `Budget ${categoryName} supprimé`);
-      setOpen(false);
+      startTransition(() => {
+        if (!r.ok) return setError(r.error);
+        toast(amount ? `Budget ${categoryName} enregistré` : `Budget ${categoryName} supprimé`);
+        setOpen(false);
+      });
     });
   }
 
@@ -121,6 +124,7 @@ export function BudgetSettings({
   const [pending, startTransition] = useTransition();
   const [income, setIncome] = useState(centsToInput(referenceIncomeCents));
   const [error, setError] = useState<string | null>(null);
+  const [what, setWhat] = useState<"carry" | "income" | null>(null);
 
   return (
     <div className="flex flex-col gap-4">
@@ -131,34 +135,43 @@ export function BudgetSettings({
             {carryOver ? `${formatCents(carryOverCents)} reportés du mois précédent` : "Ajoute le reliquat du mois précédent"}
           </span>
         </span>
-        <input
-          type="checkbox"
-          checked={carryOver}
-          disabled={pending}
-          onChange={(e) =>
-            startTransition(async () => {
-              const r = await updateProfile({ budgetCarryOver: e.target.checked });
-              if (!r.ok) toast(r.error, "error");
-            })
-          }
-        />
+        <span className="flex items-center gap-2">
+          {pending && what === "carry" && <Spinner size={14} label="Enregistrement" />}
+          <input
+            type="checkbox"
+            checked={carryOver}
+            disabled={pending}
+            onChange={(e) => {
+              setWhat("carry");
+              startTransition(async () => {
+                const r = await updateProfile({ budgetCarryOver: e.target.checked });
+                startTransition(() => {
+                  if (!r.ok) toast(r.error, "error");
+                });
+              });
+            }}
+          />
+        </span>
       </label>
       <form
         className="border-t border-divider pt-3"
         onSubmit={(e) => {
           e.preventDefault();
           setError(null);
+          setWhat("income");
           startTransition(async () => {
             const r = await updateProfile({ referenceIncome: income });
-            if (!r.ok) return setError(r.error);
-            toast("Revenu de référence enregistré");
+            startTransition(() => {
+              if (!r.ok) return setError(r.error);
+              toast("Revenu de référence enregistré");
+            });
           });
         }}
       >
         <Label htmlFor="ref-income">Revenu de référence (budgets en %)</Label>
         <div className="flex gap-2">
           <Input id="ref-income" inputMode="decimal" value={income} onChange={(e) => setIncome(sanitizeAmountInput(e.target.value))} />
-          <Button type="submit" loading={pending}>
+          <Button type="submit" loading={pending && what === "income"} disabled={pending}>
             OK
           </Button>
         </div>

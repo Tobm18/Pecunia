@@ -181,14 +181,16 @@ export function QuickEntryForm({
         date,
         note,
       }, linked?.id ?? null).catch(() => ({ ok: false as const, error: "Enregistrement impossible, réessaie dans un instant." }));
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      toast(`${result.data.label} · ${result.data.amount} · ${result.data.accountName}`);
-      if (result.data.budgetAlert) setBudgetAlert(result.data.budgetAlert);
-      onCreated?.({ ...result.data, date, categoryName: categoryId ? (categoryById.get(categoryId)?.name ?? null) : null });
-      resetAfterSubmit();
+      startTransition(() => {
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        toast(`${result.data.label} · ${result.data.amount} · ${result.data.accountName}`);
+        if (result.data.budgetAlert) setBudgetAlert(result.data.budgetAlert);
+        onCreated?.({ ...result.data, date, categoryName: categoryId ? (categoryById.get(categoryId)?.name ?? null) : null });
+        resetAfterSubmit();
+      });
     });
   }
 
@@ -327,7 +329,7 @@ export function QuickEntryForm({
                 isSheet ? "text-[42px] leading-tight" : "min-h-11 text-2xl",
               )}
             />
-            <span className={clsx("font-extrabold text-n-500", isSheet ? "text-3xl" : "text-xl")}>€</span>
+            <span className={clsx("font-extrabold text-n-600", isSheet ? "text-3xl" : "text-xl")}>€</span>
           </div>
         </div>
       </div>
@@ -531,7 +533,7 @@ export function QuickEntryForm({
           type="submit"
           disabled={pending}
           className={clsx(
-            "flex items-center justify-between gap-3 rounded-[12px] bg-accent font-bold text-white hover:bg-accent-600 disabled:opacity-60",
+            "flex items-center justify-between gap-3 rounded-[12px] bg-accent font-bold text-on-accent hover:bg-accent-600 disabled:opacity-60",
             isSheet ? "min-h-14 w-full px-5 text-lg" : "min-h-10 px-4 text-sm",
           )}
         >
@@ -540,7 +542,7 @@ export function QuickEntryForm({
             {pending ? "Enregistrement…" : "Valider et continuer"}
           </span>
           {isSheet ? (
-            <span className="text-sm font-medium opacity-75">date conservée</span>
+            <span className="text-sm font-medium">date conservée</span>
           ) : (
             <CornerDownLeft size={15} className="opacity-75" />
           )}

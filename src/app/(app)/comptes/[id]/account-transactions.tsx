@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useAppData } from "@/components/app/app-data";
 import { Amount } from "@/components/ui/money";
 import { TransactionRow } from "@/components/transactions/transaction-row";
+import { SwipeActions } from "@/components/ui/swipe-actions";
+import { deleteTransaction } from "@/lib/data/actions";
 import { EditTransactionModal } from "@/components/transactions/edit-transaction-modal";
 import { dayLabel } from "@/lib/domain/dates";
 import type { Transaction } from "@/lib/domain/types";
@@ -24,15 +26,21 @@ export function AccountTransactions({ groups }: { groups: { date: string; total:
           <ul className="divide-y divide-divider">
             {g.items.map((t) => (
               <li key={t.id}>
-                <TransactionRow
-                  tx={t}
-                  consolidated={false}
-                  showAccount={t.type === "transfer"}
-                  category={t.categoryId ? categoryById.get(t.categoryId) : undefined}
-                  account={accountById.get(t.accountId)}
-                  counterpart={t.counterpartAccountId ? accountById.get(t.counterpartAccountId) : undefined}
-                  onClick={() => setEditing(t)}
-                />
+                <SwipeActions
+                  label={`Supprimer ${t.place || "la transaction"}`}
+                  successMessage={t.type === "transfer" ? "Virement supprimé" : "Transaction supprimée"}
+                  onDelete={() => deleteTransaction(t.id)}
+                >
+                  <TransactionRow
+                    tx={t}
+                    consolidated={false}
+                    showAccount={t.type === "transfer"}
+                    category={t.categoryId ? categoryById.get(t.categoryId) : undefined}
+                    account={accountById.get(t.accountId)}
+                    counterpart={t.counterpartAccountId ? accountById.get(t.counterpartAccountId) : undefined}
+                    onClick={() => setEditing(t)}
+                  />
+                </SwipeActions>
               </li>
             ))}
           </ul>

@@ -11,6 +11,8 @@ import { shortAccountName } from "@/lib/domain/accounts";
 import { groupByDay, signedTotal } from "@/lib/domain/stats";
 import type { Transaction } from "@/lib/domain/types";
 import { TransactionRow } from "@/components/transactions/transaction-row";
+import { SwipeActions } from "@/components/ui/swipe-actions";
+import { deleteTransaction } from "@/lib/data/actions";
 import { EditTransactionModal } from "@/components/transactions/edit-transaction-modal";
 
 type TypeFilter = "all" | "out" | "in" | "transfer";
@@ -43,7 +45,7 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
   return (
     <>
       <div className="flex flex-col gap-3 md:rounded-card md:bg-surface md:p-4 md:shadow-card">
-        <div className="grid gap-3 md:grid-cols-[1fr_200px]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_200px]">
           <label className="relative block">
             <Search size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-n-500" />
             <input
@@ -111,14 +113,20 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
                 <ul className="divide-y divide-divider">
                   {g.items.map((t) => (
                     <li key={t.id}>
-                      <TransactionRow
-                        tx={t}
-                        consolidated={!accountId}
-                        category={t.categoryId ? categoryById.get(t.categoryId) : undefined}
-                        account={accountById.get(t.accountId)}
-                        counterpart={t.counterpartAccountId ? accountById.get(t.counterpartAccountId) : undefined}
-                        onClick={() => setEditing(t)}
-                      />
+                      <SwipeActions
+                        label={`Supprimer ${t.place || "la transaction"}`}
+                        successMessage={t.type === "transfer" ? "Virement supprimé" : "Transaction supprimée"}
+                        onDelete={() => deleteTransaction(t.id)}
+                      >
+                        <TransactionRow
+                          tx={t}
+                          consolidated={!accountId}
+                          category={t.categoryId ? categoryById.get(t.categoryId) : undefined}
+                          account={accountById.get(t.accountId)}
+                          counterpart={t.counterpartAccountId ? accountById.get(t.counterpartAccountId) : undefined}
+                          onClick={() => setEditing(t)}
+                        />
+                      </SwipeActions>
                     </li>
                   ))}
                 </ul>

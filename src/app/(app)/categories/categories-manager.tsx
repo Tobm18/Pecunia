@@ -10,6 +10,7 @@ import { useAppData } from "@/components/app/app-data";
 import { IconColorPicker } from "@/components/accounts/account-dialogs";
 import { IconBadge } from "@/components/ui/icons";
 import { Modal, useToast } from "@/components/ui/overlay";
+import { Spinner } from "@/components/ui/spinner";
 import { Button, Card, FieldError, Input, Label } from "@/components/ui/primitives";
 
 interface Draft {
@@ -44,13 +45,15 @@ export function CategoriesManager({
     setAction(name);
     startTransition(async () => {
       const r = await task();
-      if (!r.ok) {
-        setError(r.error ?? null);
-        if (!draft) toast(r.error ?? "Erreur", "error");
-        return;
-      }
-      if (success) toast(success);
-      after?.();
+      startTransition(() => {
+        if (!r.ok) {
+          setError(r.error ?? null);
+          if (!draft) toast(r.error ?? "Erreur", "error");
+          return;
+        }
+        if (success) toast(success);
+        after?.();
+      });
     });
   }
 
@@ -99,20 +102,20 @@ export function CategoriesManager({
               <button
                 type="button"
                 disabled={i === 0 || pending}
-                onClick={() => run(() => moveCategory(c.id, "up"))}
+                onClick={() => run(() => moveCategory(c.id, "up"), undefined, undefined, `up-${c.id}`)}
                 className="flex size-10 items-center justify-center rounded-lg text-n-600 hover:bg-n-100 disabled:opacity-30"
                 aria-label={`Monter ${c.name}`}
               >
-                <ChevronUp size={18} />
+                {pending && action === `up-${c.id}` ? <Spinner size={16} label="Déplacement" /> : <ChevronUp size={18} />}
               </button>
               <button
                 type="button"
                 disabled={i === active.length - 1 || pending}
-                onClick={() => run(() => moveCategory(c.id, "down"))}
+                onClick={() => run(() => moveCategory(c.id, "down"), undefined, undefined, `down-${c.id}`)}
                 className="flex size-10 items-center justify-center rounded-lg text-n-600 hover:bg-n-100 disabled:opacity-30"
                 aria-label={`Descendre ${c.name}`}
               >
-                <ChevronDown size={18} />
+                {pending && action === `down-${c.id}` ? <Spinner size={16} label="Déplacement" /> : <ChevronDown size={18} />}
               </button>
             </li>
           ))}

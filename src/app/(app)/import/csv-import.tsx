@@ -105,9 +105,11 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
       const dates = rows.map((r) => r.date).sort();
       startTransition(async () => {
         const lines = await getLinesInRange(dates[0]!, dates[dates.length - 1]!).catch(() => [] as ExistingLine[]);
-        setOtherLines(lines.filter((l) => l.accountId !== target.id));
-        const existing = lines.filter((l) => l.accountId === target.id);
-        setDrafts(buildDrafts({ rows, account: target, accounts: activeAccounts, categorizer, existing }));
+        startTransition(() => {
+          setOtherLines(lines.filter((l) => l.accountId !== target.id));
+          const existing = lines.filter((l) => l.accountId === target.id);
+          setDrafts(buildDrafts({ rows, account: target, accounts: activeAccounts, categorizer, existing }));
+        });
       });
     },
     [activeAccounts, categorizer],
@@ -253,14 +255,16 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
         items: summary.valid.map((d) => draftToItem(d, account.id, links.get(d.key)?.id ?? null)),
         openingBalances: setOpening && file?.opening ? [{ accountId: account.id, cents: file.opening.cents, date: file.opening.date }] : [],
       }).catch(() => ({ ok: false as const, error: "Import impossible, réessaie dans un instant." }));
-      setSubmitting(false);
-      if (!res.ok) return setSubmitError(res.error);
-      toast(`${res.inserted} transaction${res.inserted > 1 ? "s" : ""} importée${res.inserted > 1 ? "s" : ""}`);
-      setResult({ inserted: res.inserted, skipped: res.skipped, linked: res.linked, accountName: account.name, accountId: account.id });
-      setOtherLines([]);
-      setDrafts(null);
-      setFile(null);
-      if (fileInput.current) fileInput.current.value = "";
+      startTransition(() => {
+        setSubmitting(false);
+        if (!res.ok) return setSubmitError(res.error);
+        toast(`${res.inserted} transaction${res.inserted > 1 ? "s" : ""} importée${res.inserted > 1 ? "s" : ""}`);
+        setResult({ inserted: res.inserted, skipped: res.skipped, linked: res.linked, accountName: account.name, accountId: account.id });
+        setOtherLines([]);
+        setDrafts(null);
+        setFile(null);
+        if (fileInput.current) fileInput.current.value = "";
+      });
     });
   }
 
@@ -295,7 +299,7 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
 
       {/* Étape 1 : compte + fichier */}
       <Card>
-        <div className="grid gap-4 md:grid-cols-[260px_1fr] md:items-end">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[260px_minmax(0,1fr)] md:items-end">
           <div>
             <Label htmlFor="import-account">Compte concerné</Label>
             <Select id="import-account" value={accountId} onChange={(e) => changeAccount(e.target.value)} disabled={pending}>
@@ -341,12 +345,12 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
       {file && (
         <Card>
           <h2 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-n-700">Correspondance des colonnes</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {file.parsed.header.map((h, i) => (
               <div key={i}>
                 <Label htmlFor={`col-${i}`}>
                   {h || `Colonne ${i + 1}`}{" "}
-                  <span className="text-n-500">· {file.parsed.rows[0]?.cells[i] || "-"}</span>
+                  <span className="text-n-600">· {file.parsed.rows[0]?.cells[i] || "-"}</span>
                 </Label>
                 <Select id={`col-${i}`} value={file.roles[i]} onChange={(e) => changeRole(i, e.target.value as ColumnRole)}>
                   {(Object.keys(COLUMN_ROLE_LABELS) as ColumnRole[]).map((r) => (

@@ -48,8 +48,10 @@ export function RecurrencesManager({
     setBusyKey(o.key);
     startTransition(async () => {
       const r = await setOccurrenceDone(o.recurrence.id, o.date, o.status !== "done", o.transaction?.id ?? null);
-      setBusyKey(null);
-      if (!r.ok) toast(r.error, "error");
+      startTransition(() => {
+        setBusyKey(null);
+        if (!r.ok) toast(r.error, "error");
+      });
     });
   }
 
@@ -61,7 +63,7 @@ export function RecurrencesManager({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <p className="text-xs font-semibold text-n-700">Abonnements / mois</p>
           <p className="mt-1 text-2xl font-extrabold tabular-nums">{formatCents(subscriptionsMonthlyCents)}</p>
@@ -81,7 +83,7 @@ export function RecurrencesManager({
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <Card className="!p-0">
           <div className="p-4 pb-2">
             <CardHeader title="Échéances à venir" />
@@ -106,7 +108,7 @@ export function RecurrencesManager({
                     const late = !done && o.date < today;
                     const category = r.categoryId ? categoryById.get(r.categoryId) : undefined;
                     return (
-                      <li key={o.key} className={clsx("flex items-center gap-3 px-4 py-2.5", done && "opacity-70")}>
+                      <li key={o.key} className={clsx("flex items-center gap-3 px-4 py-2.5", done && "bg-n-100")}>
                         <button
                           type="button"
                           onClick={() => toggle(o)}
@@ -115,7 +117,7 @@ export function RecurrencesManager({
                           aria-label={done ? "Repasser en prévue" : "Marquer comme réalisée"}
                           className={clsx(
                             "flex size-9 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-                            done ? "border-accent bg-accent text-white" : "border-n-300 text-transparent hover:border-accent hover:text-accent",
+                            done ? "border-accent bg-accent text-on-accent" : "border-n-300 text-transparent hover:border-accent hover:text-accent",
                           )}
                         >
                           {busyKey === o.key ? <Spinner size={15} className="text-current" /> : <Check size={16} strokeWidth={3} />}

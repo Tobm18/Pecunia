@@ -147,7 +147,7 @@ export const ImportRowView = memo(function ImportRowView({
         <button
           type="button"
           onClick={() => actions.remove(row.key)}
-          className="flex size-8 items-center justify-center rounded-lg text-n-500 hover:bg-danger-100 hover:text-danger-700"
+          className="flex size-8 items-center justify-center rounded-lg text-n-600 hover:bg-danger-100 hover:text-danger-700"
           aria-label="Supprimer la ligne"
         >
           <Trash2 size={15} />
