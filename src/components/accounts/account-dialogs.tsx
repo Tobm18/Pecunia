@@ -185,6 +185,8 @@ export function AdjustBalanceButton({ account, balanceCents }: { account: Accoun
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
+  // historique incomplet par défaut : l'écart va dans le solde initial, avant la première opération
+  const [mode, setMode] = useState<"initial" | "today">("initial");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const real = parseAmountToCents(value);
@@ -193,10 +195,10 @@ export function AdjustBalanceButton({ account, balanceCents }: { account: Accoun
   function submit() {
     if (real === null) return;
     startTransition(async () => {
-      const result = await adjustBalance(account.id, value, todayIso());
+      const result = await adjustBalance(account.id, value, todayIso(), mode);
       startTransition(() => {
         if (!result.ok) return setError(result.error);
-        if (result.data.created) toast("Régularisation créée");
+        if (result.data.created) toast(mode === "initial" ? "Solde initial corrigé" : "Régularisation créée");
         setOpen(false);
       });
     });
@@ -221,7 +223,7 @@ export function AdjustBalanceButton({ account, balanceCents }: { account: Accoun
           <>
             <Button onClick={() => setOpen(false)}>Annuler</Button>
             <Button variant="primary" onClick={submit} loading={pending} disabled={real === null}>
-              {diff === null ? "Valider" : "Créer la régularisation"}
+              {diff === null ? "Valider" : mode === "initial" ? "Corriger le solde initial" : "Créer la régularisation"}
             </Button>
           </>
         }
@@ -241,9 +243,29 @@ export function AdjustBalanceButton({ account, balanceCents }: { account: Accoun
               className="!text-lg font-bold"
             />
           </div>
+          <div>
+            <Label>D&apos;où vient l&apos;écart ?</Label>
+            <Segmented
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: "initial", label: "Historique incomplet" },
+                { value: "today", label: "Écart récent" },
+              ]}
+            />
+          </div>
           {diff !== null && (
             <Banner tone="info">
-              Une ligne « Régularisation » de <strong>{formatCents(diff, "always")}</strong> sera créée.
+              {mode === "initial" ? (
+                <>
+                  Le solde initial sera corrigé de <strong>{formatCents(diff, "always")}</strong>, avant la première opération : les opérations anciennes
+                  absentes (import incomplet) ne faussent plus l&apos;évolution du solde.
+                </>
+              ) : (
+                <>
+                  Une ligne « Régularisation » de <strong>{formatCents(diff, "always")}</strong> sera créée aujourd&apos;hui (oubli de saisie récent).
+                </>
+              )}
             </Banner>
           )}
           <FieldError>{error}</FieldError>

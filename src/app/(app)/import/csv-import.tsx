@@ -5,7 +5,7 @@ import { clsx } from "clsx";
 import { CircleCheck, FileUp, Plus, TriangleAlert } from "lucide-react";
 import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { useAppData } from "@/components/app/app-data";
-import { Banner, Button, Card, Chip, Label, Select, buttonClass } from "@/components/ui/primitives";
+import { Banner, Button, Card, Chip, Input, Label, Select, buttonClass } from "@/components/ui/primitives";
 import { useToast } from "@/components/ui/overlay";
 import { getLinesInRange, importTransactions } from "@/lib/data/import-actions";
 import {
@@ -24,6 +24,7 @@ import {
   isTransferType,
   normalizeText,
   parseCsv,
+  parseImportAmount,
   type ColumnRole,
   type DraftRow,
   type DraftType,
@@ -31,7 +32,7 @@ import {
   type ParsedCsv,
 } from "@/lib/domain/csv-import";
 import { numericDate, todayIso } from "@/lib/domain/dates";
-import { formatCents } from "@/lib/domain/money";
+import { formatCents, sanitizeAmountInput } from "@/lib/domain/money";
 import type { Account } from "@/lib/domain/types";
 import { ImportRowView, type RowActions } from "./import-row";
 import { Spinner } from "@/components/ui/spinner";
@@ -75,6 +76,7 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [setOpening, setSetOpening] = useState(false);
+  const [realBalance, setRealBalance] = useState("");
   const [result, setResult] = useState<{ inserted: number; skipped: number; linked: number; accountName: string; accountId: string } | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -249,8 +251,20 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
 
   // Solde du compte après import (solde initial éventuellement remplacé par celui déduit du fichier)
   const currentBalance = account ? (balances[account.id] ?? account.initialBalanceCents) : 0;
-  const projected =
-    account && (setOpening && file?.opening ? file.opening.cents - account.initialBalanceCents + currentBalance : currentBalance) + summary.net;
+  // Fichier sans colonne « Total » : le solde réel actuel, saisi, fixe le solde initial (placé avant
+  // la première ligne) ; l'écart vient de l'historique absent du fichier, pas d'aujourd'hui
+  const realCents = !file?.opening && realBalance.trim() ? parseImportAmount(realBalance) : null;
+  const firstDate = summary.valid.map((d) => d.date).sort()[0];
+  const realOpening =
+    account && realCents !== null && firstDate
+      ? {
+          cents: realCents - (currentBalance - account.initialBalanceCents) - summary.net,
+          // le solde initial précède la première ligne, celles du fichier comme celles déjà enregistrées
+          date: firstDate < account.initialBalanceDate ? firstDate : account.initialBalanceDate,
+        }
+      : null;
+  const opening = setOpening && file?.opening ? file.opening : realOpening;
+  const projected = account && (opening ? opening.cents - account.initialBalanceCents + currentBalance : currentBalance) + summary.net;
 
   function submit() {
     if (!account || summary.valid.length === 0) return;
@@ -259,7 +273,7 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
     startTransition(async () => {
       const res = await importTransactions({
         items: summary.valid.map((d) => draftToItem(d, account.id, links.get(d.key)?.id ?? null)),
-        openingBalances: setOpening && file?.opening ? [{ accountId: account.id, cents: file.opening.cents, date: file.opening.date }] : [],
+        openingBalances: opening ? [{ accountId: account.id, cents: opening.cents, date: opening.date }] : [],
       }).catch(() => ({ ok: false as const, error: "Import impossible, réessaie dans un instant." }));
       startTransition(() => {
         setSubmitting(false);
@@ -500,6 +514,35 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
                   )}
                 </span>
               </label>
+            )}
+            {!file?.opening && (
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <label htmlFor="real-balance" className="flex-1">
+                  <span className="font-semibold">Solde réel de {account.name} aujourd&apos;hui</span>{" "}
+                  <span className="text-n-600">(facultatif)</span>
+                  <span className="block text-xs text-n-600">
+                    Le fichier n&apos;a pas les opérations les plus anciennes : l&apos;écart est placé dans le solde initial, avant la première ligne, sans
+                    régularisation datée d&apos;aujourd&apos;hui.
+                  </span>
+                </label>
+                <div className="flex w-36 items-center gap-2">
+                  <Input
+                    id="real-balance"
+                    inputMode="decimal"
+                    value={realBalance}
+                    onChange={(e) => setRealBalance(sanitizeAmountInput(e.target.value, true))}
+                    placeholder="0,00"
+                    className="text-right tabular-nums"
+                  />
+                  <span className="text-n-700">€</span>
+                </div>
+                {realOpening && (
+                  <p className="w-full text-xs text-n-700">
+                    Solde initial : <strong>{formatCents(realOpening.cents)}</strong> au {numericDate(realOpening.date)}
+                    {account.initialBalanceCents !== 0 && ` (remplace ${formatCents(account.initialBalanceCents)})`}
+                  </p>
+                )}
+              </div>
             )}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm">

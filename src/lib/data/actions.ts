@@ -15,6 +15,7 @@ import { defaultInBudget } from "@/lib/domain/defaults";
 import type { Transaction } from "@/lib/domain/types";
 import { getAccounts, getBalances, getBudgets, getCategories, getProfile, getSession, getTransactions, pgErrorCode } from "./queries";
 import { transactionToRow } from "./mappers";
+import { refreshInternalAccounts } from "./bank";
 import { THEME_COOKIE } from "@/lib/theme";
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
@@ -331,8 +332,17 @@ export async function deleteAccount(id: string): Promise<ActionResult> {
   return ok(undefined);
 }
 
-/** Crée une ligne « Régularisation » pour aligner le solde sur le relevé bancaire. */
-export async function adjustBalance(accountId: string, realAmount: string, today: string): Promise<ActionResult<{ created: boolean }>> {
+/**
+ * Aligne le solde sur le relevé bancaire. « initial » : l'écart vient d'opérations anciennes
+ * absentes (historique importé incomplet) et corrige le solde initial, placé avant la première
+ * ligne : l'évolution du solde reste juste. « today » : ligne « Régularisation » datée du jour.
+ */
+export async function adjustBalance(
+  accountId: string,
+  realAmount: string,
+  today: string,
+  mode: "initial" | "today" = "today",
+): Promise<ActionResult<{ created: boolean }>> {
   if (!uuid.safeParse(accountId).success || !isValidIsoDate(today)) return fail(GENERIC_ERROR);
   const real = parseAmountToCents(realAmount);
   if (real === null) return fail("Montant invalide.");
@@ -343,6 +353,38 @@ export async function adjustBalance(accountId: string, realAmount: string, today
   if (diff === null) return ok({ created: false });
 
   const { user } = await getSession();
+  if (mode === "initial") {
+    const t = s.transactions;
+    try {
+      const [account] = await db
+        .select()
+        .from(s.accounts)
+        .where(and(eq(s.accounts.id, accountId), eq(s.accounts.user_id, user.id)));
+      if (!account) return fail("Compte introuvable.");
+      if (account.reference_balance_cents !== null) {
+        // compte interne : son solde initial découle du solde réel de référence, mis à jour ici
+        await db.update(s.accounts).set({ reference_balance_cents: real, reference_balance_date: today }).where(eq(s.accounts.id, account.id));
+        await refreshInternalAccounts(user.id);
+      } else {
+        const [first] = await db
+          .select({ date: sql<string | null>`min(${t.date})` })
+          .from(t)
+          .where(and(eq(t.account_id, account.id), eq(t.user_id, user.id)));
+        const firstDate = first?.date ?? null;
+        await db
+          .update(s.accounts)
+          .set({
+            initial_balance_cents: Number(account.initial_balance_cents) + diff,
+            ...(firstDate && firstDate < account.initial_balance_date ? { initial_balance_date: firstDate } : {}),
+          })
+          .where(eq(s.accounts.id, account.id));
+      }
+    } catch {
+      return fail(GENERIC_ERROR);
+    }
+    refresh();
+    return ok({ created: true });
+  }
   try {
     await db.insert(s.transactions).values({
       user_id: user.id,
