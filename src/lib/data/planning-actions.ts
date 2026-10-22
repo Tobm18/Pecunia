@@ -4,14 +4,14 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, like, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db, schema as s } from "@/lib/db";
 import { isValidIsoDate, monthKeyOf, monthPeriod } from "@/lib/domain/dates";
 import { seriesDates } from "@/lib/domain/forecast";
 import { parseAmountToCents } from "@/lib/domain/money";
 import { signedRecurrenceCents } from "@/lib/domain/recurrences";
-import { getAccounts, getCategories, getProfile, getRecurrences, getSession } from "./queries";
+import { getAccounts, getCategories, getProfile, getRecurrences, getSession, getWishes } from "./queries";
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -169,7 +169,7 @@ export async function setOccurrenceDone(recurrenceId: string, date: string, done
 // ---------------------------------------------------------------------------
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const sourceKey = z.string().regex(new RegExp(`^(rec:${UUID}:\\d{4}-\\d{2}-\\d{2}|bud:${UUID}:\\d{4}-\\d{2})$`, "i"));
+const sourceKey = z.string().regex(new RegExp(`^(rec:${UUID}:\\d{4}-\\d{2}-\\d{2}|(bud|wish):${UUID}:\\d{4}-\\d{2})$`, "i"));
 const monthKey = z.string().regex(/^\d{4}-\d{2}$/);
 
 const decisionSchema = z.object({
@@ -190,6 +190,9 @@ export async function decideProposals(inputs: DecisionInput[]): Promise<ActionRe
   const accounts = await getAccounts();
   const { user } = await getSession();
   const rows: (typeof s.forecastDecisions.$inferInsert)[] = [];
+  const acceptedWishes: (typeof s.forecastItems.$inferInsert)[] = [];
+  const withWishes = inputs.some((i) => i.sourceKey.startsWith("wish:"));
+  const [wishes, profile] = withWishes ? await Promise.all([getWishes(), getProfile()]) : [[], null];
   for (const input of inputs) {
     const parsed = decisionSchema.safeParse(input);
     if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? GENERIC_ERROR);
@@ -200,6 +203,26 @@ export async function decideProposals(inputs: DecisionInput[]): Promise<ActionRe
       if (amountCents === null) return fail("Le montant doit être supérieur à zéro.");
     }
     if (v.accountId && !accounts.some((a) => a.id === v.accountId && !a.archivedAt)) return fail("Compte introuvable.");
+    // Souhait accepté : il devient une ligne prévue (rapprochable d'une vraie dépense), pas une décision
+    if (v.sourceKey.startsWith("wish:") && v.status === "accepted") {
+      const wish = wishes.find((w) => w.id === v.sourceKey.split(":")[1]);
+      if (!wish || !profile) return fail("Souhait introuvable.");
+      const active = accounts.filter((a) => !a.archivedAt);
+      const accountId = v.accountId ?? (active.find((a) => a.type === "current" && a.inBudget) ?? active.find((a) => a.inBudget) ?? active[0])?.id;
+      if (!accountId) return fail("Compte introuvable.");
+      const period = monthPeriod(v.month, profile.monthStartDay);
+      const inPeriod = (d: string | null | undefined) => (d && d >= period.start && d <= period.end ? d : null);
+      acceptedWishes.push({
+        user_id: user.id,
+        account_id: accountId,
+        label: wish.title,
+        amount_cents: -(amountCents ?? wish.amountCents),
+        date: inPeriod(v.date) ?? inPeriod(wish.dueDate) ?? period.end,
+        status: "planned",
+        wish_id: wish.id,
+      });
+      continue;
+    }
     rows.push({
       user_id: user.id,
       source_key: v.sourceKey,
@@ -212,6 +235,18 @@ export async function decideProposals(inputs: DecisionInput[]): Promise<ActionRe
     });
   }
   const d = s.forecastDecisions;
+  if (acceptedWishes.length) {
+    const savedWishes = await attempt(async () => {
+      await db.insert(s.forecastItems).values(acceptedWishes).onConflictDoNothing();
+      // un refus antérieur ne vaut plus
+      for (const w of acceptedWishes) await db.delete(d).where(and(eq(d.user_id, user.id), like(d.source_key, `wish:${w.wish_id}:%`)));
+    });
+    if (!savedWishes) return fail(GENERIC_ERROR);
+    if (rows.length === 0) {
+      refresh();
+      return ok(undefined);
+    }
+  }
   const saved = await attempt(() =>
     db
       .insert(d)

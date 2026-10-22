@@ -14,7 +14,7 @@ import { Button, Card, CardHeader, FieldError, Input, Label, Segmented, Select }
 
 export interface PlanLine {
   key: string;
-  kind: "recurrence" | "budget" | "planned";
+  kind: "recurrence" | "budget" | "wish" | "planned";
   label: string;
   type: "out" | "in" | "transfer";
   accountId: string;
@@ -33,7 +33,12 @@ export interface PlanLine {
   decided: boolean;
   itemId: string | null;
   seriesId: string | null;
+  /** Souhait venant de G Koi À Faire : sa priorité (proposition), ou ligne prévue issue d'un souhait */
+  priority: "high" | "medium" | "low" | null;
+  fromWish: boolean;
 }
+
+const PRIORITY_LABELS = { high: "priorité haute", medium: "priorité moyenne", low: "priorité basse" } as const;
 
 interface Props {
   month: string;
@@ -107,6 +112,8 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
     if (l.date) parts.push(shortDate(l.date));
     if (l.kind === "budget") parts.push("Budget");
     else if (l.kind === "recurrence") parts.push(l.type === "transfer" ? "Virement récurrent" : "Récurrence");
+    else if (l.kind === "wish") parts.push("Souhait G Koi À Faire", l.priority ? PRIORITY_LABELS[l.priority] : "");
+    else if (l.fromWish) parts.push("Prévue · G Koi À Faire");
     else parts.push(l.seriesId ? "Prévue · série" : "Prévue");
     if (l.type === "transfer") {
       const from = accountById.get(l.accountId);
@@ -175,7 +182,8 @@ export function MonthPlanner({ month, period, today, lines, realized, summary, d
           )}
           {toValidate.length === 0 ? (
             <p className="text-sm text-n-600">
-              Rien à valider ce mois-ci. Tes budgets sont proposés ici ; les échéances de tes récurrences sont retenues d&apos;office.
+              Rien à valider ce mois-ci. Tes budgets et les achats en attente de G Koi À Faire sont proposés ici ; les échéances de tes
+              récurrences sont retenues d&apos;office.
             </p>
           ) : (
             <ul className="divide-y divide-divider">
@@ -426,7 +434,7 @@ function ProposalModal({
           month,
           status: "accepted",
           amount: cents !== null && cents !== line.proposedCents ? amount : null,
-          date: line.kind === "recurrence" && date && date !== line.proposedDate ? date : null,
+          date: (line.kind === "recurrence" || line.kind === "wish") && date && date !== line.proposedDate ? date : null,
           accountId: line.type !== "transfer" && accountId !== line.accountId ? accountId : null,
         },
       ]);
@@ -461,7 +469,7 @@ function ProposalModal({
             <Label htmlFor="pr-amount">Montant</Label>
             <Input id="pr-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(sanitizeAmountInput(e.target.value))} />
           </div>
-          {line.kind === "recurrence" && (
+          {(line.kind === "recurrence" || line.kind === "wish") && (
             <div>
               <Label htmlFor="pr-date">Date</Label>
               <Input id="pr-date" type="date" min={period.start} max={period.end} value={date} onChange={(e) => setDate(e.target.value)} />

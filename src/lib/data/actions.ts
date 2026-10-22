@@ -478,6 +478,7 @@ const profileSchema = z
     referenceIncome: z.string(),
     budgetCarryOver: z.boolean(),
     displayName: z.string().trim().max(60),
+    wishCushion: z.string(),
   })
   .partial();
 
@@ -490,6 +491,11 @@ export async function updateProfile(input: z.input<typeof profileSchema>): Promi
   if (v.monthStartDay) patch.month_start_day = v.monthStartDay;
   if (v.budgetCarryOver !== undefined) patch.budget_carry_over = v.budgetCarryOver;
   if (v.displayName !== undefined) patch.display_name = v.displayName || null;
+  if (v.wishCushion !== undefined) {
+    const cents = parseAmountToCents(v.wishCushion || "0");
+    if (cents === null || cents < 0) return fail("Montant invalide.");
+    patch.wish_cushion_cents = cents;
+  }
   if (v.referenceIncome !== undefined) {
     const cents = parseAmountToCents(v.referenceIncome || "0");
     if (cents === null || cents < 0) return fail("Montant invalide.");

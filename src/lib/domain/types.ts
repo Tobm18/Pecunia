@@ -69,6 +69,8 @@ export interface Profile {
   referenceIncomeCents: number;
   budgetCarryOver: boolean;
   lastBackupAt: string | null;
+  /** Coussin de sécurité retiré de la marge communiquée à l'app des souhaits */
+  wishCushionCents: number;
 }
 
 export interface PlaceMemoryEntry {
@@ -112,12 +114,29 @@ export interface ForecastItem {
   seriesId: string | null;
   /** Virement interne : compte crédité (amountCents, négatif, porte sur accountId) */
   toAccountId: string | null;
+  /** Ligne issue d'un souhait accepté (voir Wish) */
+  wishId: string | null;
+}
+
+/**
+ * Souhait : achat en attente tenu à jour par une autre app (G Koi À Faire), avec son coût estimé.
+ * Il est proposé dans le prévisionnel ; accepté, il devient une ligne prévue (ForecastItem.wishId).
+ */
+export interface Wish {
+  id: string;
+  source: string;
+  externalId: string;
+  title: string;
+  /** Coût estimé, positif */
+  amountCents: number;
+  priority: "high" | "medium" | "low" | null;
+  dueDate: string | null;
 }
 
 /** Décision sur une proposition du prévisionnel (échéance ou budget) pour un mois. */
 export interface ForecastDecision {
   id: string;
-  /** « rec:<récurrence>:<date> » ou « bud:<catégorie>:<mois> » */
+  /** « rec:<récurrence>:<date> », « bud:<catégorie>:<mois> » ou « wish:<souhait>:<mois> » */
   sourceKey: string;
   month: string;
   status: "accepted" | "rejected";

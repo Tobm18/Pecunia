@@ -7,11 +7,15 @@
  * dépenser) : à accepter (éventuellement modifiée) ou refuser. S'y ajoutent les lignes
  * prévues saisies à la main (entrées / sorties, éventuellement sur plusieurs mois).
  *
+ * Les souhaits (achats en attente venant de G Koi À Faire) sont **proposés** dans le mois de
+ * leur échéance, ou le mois en cours sans échéance : les accepter crée une ligne prévue liée
+ * (ForecastItem.wishId), les refuser les écarte pour ce mois.
+ *
  * Solde fin de mois = solde de début + propositions acceptées + lignes prévues.
  * Les propositions à valider ne comptent pas : elles donnent seulement le solde « si tout
  * est accepté ».
  */
-import type { Account, ForecastDecision, ForecastItem } from "./types";
+import type { Account, ForecastDecision, ForecastItem, Wish } from "./types";
 import type { BudgetOverview } from "./budgets";
 import { addMonths, monthKeyOf, monthPeriod, type IsoDate, type MonthKey } from "./dates";
 import type { Occurrence } from "./recurrences";
@@ -21,7 +25,7 @@ export type ProposalStatus = "pending" | "accepted" | "rejected";
 export interface Proposal {
   /** Clé de décision (source_key) */
   key: string;
-  source: "recurrence" | "budget";
+  source: "recurrence" | "budget" | "wish";
   month: MonthKey;
   label: string;
   type: "out" | "in" | "transfer";
@@ -38,6 +42,9 @@ export interface Proposal {
   modified: boolean;
   /** Une décision est enregistrée (sinon : statut par défaut de la source) */
   decided: boolean;
+  /** Souhait d'origine (source « wish ») */
+  wishId?: string;
+  priority?: Wish["priority"];
 }
 
 export interface AccountMonth {
@@ -68,6 +75,7 @@ export interface NegativeAlert {
 
 export const recurrenceKey = (recurrenceId: string, date: IsoDate) => `rec:${recurrenceId}:${date}`;
 export const budgetKey = (categoryId: string, month: MonthKey) => `bud:${categoryId}:${month}`;
+export const wishKey = (wishId: string, month: MonthKey) => `wish:${wishId}:${month}`;
 
 /** Mouvements d'une ligne prévue sur les comptes (virement : débit et crédit). */
 export function plannedEffects(f: Pick<ForecastItem, "accountId" | "toAccountId" | "amountCents">): [string, number][] {
@@ -95,8 +103,10 @@ export function buildForecast(params: {
   decisions: ForecastDecision[];
   /** Budgets du mois en cours (reste à dépenser, et montants des mois suivants) */
   budgets: BudgetOverview | null;
+  /** Souhaits en attente (G Koi À Faire) */
+  wishes?: Wish[];
 }): { months: ForecastMonth[]; alerts: NegativeAlert[] } {
-  const { accounts, balances, today, horizon, startDay, occurrences, forecastItems, decisions, budgets } = params;
+  const { accounts, balances, today, horizon, startDay, occurrences, forecastItems, decisions, budgets, wishes = [] } = params;
   const active = accounts.filter((a) => !a.archivedAt);
   const activeIds = new Set(active.map((a) => a.id));
   const currentMonth = monthKeyOf(today, startDay);
@@ -105,6 +115,9 @@ export function buildForecast(params: {
   // Compte qui porte les budgets sans compte restreint : 1er compte courant « dans le budget »
   const mainAccount =
     active.find((a) => a.type === "current" && a.inBudget) ?? active.find((a) => a.inBudget) ?? active[0];
+
+  // Souhaits déjà acceptés (ligne prévue) ou réalisés : plus proposés
+  const wishesWithLine = new Set(forecastItems.map((f) => f.wishId).filter(Boolean));
 
   const decide = (base: Omit<Proposal, "amountCents" | "date" | "status" | "modified" | "decided">): Proposal => {
     const d = decisionByKey.get(base.key);
@@ -180,6 +193,29 @@ export function buildForecast(params: {
         }),
       );
     }
+    // Souhaits : dans le mois de l'échéance, ou le mois en cours (échéance passée ou absente)
+    for (const w of wishes) {
+      if (wishesWithLine.has(w.id) || !mainAccount) continue;
+      const dueMonth = w.dueDate ? monthKeyOf(w.dueDate, startDay) : null;
+      if ((dueMonth && dueMonth > currentMonth ? dueMonth : currentMonth) !== month) continue;
+      proposals.push(
+        decide({
+          key: wishKey(w.id, month),
+          source: "wish",
+          month,
+          label: w.title,
+          type: "out",
+          categoryId: null,
+          accountId: mainAccount.id,
+          toAccountId: null,
+          proposedCents: w.amountCents,
+          proposedDate: dueMonth === month ? w.dueDate : null,
+          wishId: w.id,
+          priority: w.priority,
+        }),
+      );
+    }
+
     proposals.sort((a, b) => (a.date ?? "9999") < (b.date ?? "9999") ? -1 : (a.date ?? "9999") > (b.date ?? "9999") ? 1 : a.label.localeCompare(b.label));
 
     const planned = forecastItems
@@ -252,16 +288,23 @@ export function findForecastMatch(
   const place = normalize(entry.place).replace(/[^a-z0-9]+/g, " ").trim();
   if (!place || entry.signedCents === 0) return null;
   const day = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86_400_000;
+  const candidate = (f: ForecastItem, tolerancePct: number) => {
+    if (f.status !== "planned" || f.toAccountId) return false;
+    if (entry.accountId && f.accountId !== entry.accountId) return false;
+    if (Math.sign(f.amountCents) !== Math.sign(entry.signedCents)) return false;
+    const tolerance = Math.max(100, Math.round(Math.abs(f.amountCents) * tolerancePct));
+    if (Math.abs(f.amountCents - entry.signedCents) > tolerance) return false;
+    return Math.abs(day(f.date) - day(entry.date)) <= 45;
+  };
+  const sameLabel = (f: ForecastItem) => {
+    const label = normalize(f.label).replace(/[^a-z0-9]+/g, " ").trim();
+    return !!label && (label === place || label.includes(place) || place.includes(label));
+  };
   return (
-    items.find((f) => {
-      if (f.status !== "planned" || f.toAccountId) return false;
-      if (entry.accountId && f.accountId !== entry.accountId) return false;
-      const label = normalize(f.label).replace(/[^a-z0-9]+/g, " ").trim();
-      if (!label || !(label === place || label.includes(place) || place.includes(label))) return false;
-      if (Math.sign(f.amountCents) !== Math.sign(entry.signedCents)) return false;
-      const tolerance = Math.max(100, Math.round(Math.abs(f.amountCents) * 0.1));
-      if (Math.abs(f.amountCents - entry.signedCents) > tolerance) return false;
-      return Math.abs(day(f.date) - day(entry.date)) <= 45;
-    }) ?? null
+    items.find((f) => sameLabel(f) && candidate(f, 0.1)) ??
+    // souhait accepté (« Changer les pneus » payé chez « Norauto ») : le libellé ne dit rien,
+    // le montant estimé est approximatif (±25 %) ; l'utilisateur confirme par « Lier »
+    items.find((f) => f.wishId && candidate(f, 0.25)) ??
+    null
   );
 }

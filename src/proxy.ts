@@ -2,8 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 import { auth } from "@/lib/auth";
 
-/** Pages accessibles sans session */
-const PUBLIC_PATHS = ["/login", "/inscription", "/api/auth"];
+/**
+ * Pages accessibles sans session. /api/integrations : autres applications reliées, authentifiées
+ * par clé d'API (vérifiée, avec ses permissions, dans chaque route), jamais par cookie.
+ */
+const PUBLIC_PATHS = ["/login", "/inscription", "/api/auth", "/api/integrations"];
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;

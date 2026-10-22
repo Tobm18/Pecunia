@@ -63,6 +63,34 @@ export const verification = pgTable("verification", {
   updatedAt: ts("updated_at").notNull().defaultNow(),
 });
 
+/** Clés d'API (module @better-auth/api-key) : accès d'une autre application, par permissions. */
+export const apikey = pgTable("apikey", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  configId: text("config_id").notNull().default("default"),
+  name: text("name"),
+  start: text("start"),
+  referenceId: uuid("reference_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  prefix: text("prefix"),
+  key: text("key").notNull(),
+  refillInterval: bigint("refill_interval", { mode: "number" }),
+  refillAmount: integer("refill_amount"),
+  lastRefillAt: ts("last_refill_at"),
+  enabled: boolean("enabled").default(true),
+  rateLimitEnabled: boolean("rate_limit_enabled").default(true),
+  rateLimitTimeWindow: bigint("rate_limit_time_window", { mode: "number" }),
+  rateLimitMax: integer("rate_limit_max"),
+  requestCount: integer("request_count").default(0),
+  remaining: integer("remaining"),
+  lastRequest: ts("last_request"),
+  expiresAt: ts("expires_at"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+  permissions: text("permissions"),
+  metadata: text("metadata"),
+});
+
 // ---------------------------------------------------------------------------
 // Données métier
 // ---------------------------------------------------------------------------
@@ -82,6 +110,7 @@ export const profiles = pgTable("profiles", {
   theme: text("theme").notNull().default("light"),
   reference_income_cents: cents("reference_income_cents").notNull().default(0),
   budget_carry_over: boolean("budget_carry_over").notNull().default(false),
+  wish_cushion_cents: cents("wish_cushion_cents").notNull().default(0),
   last_backup_at: ts("last_backup_at"),
   created_at: ts("created_at").notNull().defaultNow(),
 });
@@ -168,7 +197,23 @@ export const forecastItems = pgTable("forecast_items", {
   linked_transaction_id: uuid("linked_transaction_id"),
   series_id: uuid("series_id"),
   to_account_id: uuid("to_account_id"),
+  /** Ligne issue d'un souhait accepté */
+  wish_id: uuid("wish_id"),
   created_at: ts("created_at").notNull().defaultNow(),
+});
+
+/** Souhaits : achats en attente tenus à jour par une autre app (ex. G Koi À Faire). */
+export const wishes = pgTable("wishes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: uuid("user_id").notNull(),
+  source: text("source").notNull().default("gkoi"),
+  external_id: text("external_id").notNull(),
+  title: text("title").notNull(),
+  amount_cents: cents("amount_cents").notNull(),
+  priority: text("priority", { enum: ["high", "medium", "low"] }),
+  due_date: day("due_date"),
+  created_at: ts("created_at").notNull().defaultNow(),
+  updated_at: ts("updated_at").notNull().defaultNow(),
 });
 
 export const forecastDecisions = pgTable("forecast_decisions", {

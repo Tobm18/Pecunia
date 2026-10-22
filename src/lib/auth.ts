@@ -1,5 +1,6 @@
 import "server-only";
 import { betterAuth } from "better-auth";
+import { apiKey } from "@better-auth/api-key";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { db, schema } from "@/lib/db";
@@ -15,7 +16,13 @@ export const auth = betterAuth({
   trustedOrigins: process.env.VERCEL_URL ? [`https://${process.env.VERCEL_URL}`] : [],
   database: drizzleAdapter(db, {
     provider: "pg",
-    schema: { user: schema.user, session: schema.session, account: schema.account, verification: schema.verification },
+    schema: {
+      user: schema.user,
+      session: schema.session,
+      account: schema.account,
+      verification: schema.verification,
+      apikey: schema.apikey,
+    },
   }),
   advanced: { database: { generateId: "uuid" } },
   emailAndPassword: {
@@ -25,6 +32,15 @@ export const auth = betterAuth({
     disableSignUp: process.env.NEXT_PUBLIC_ALLOW_SIGNUP !== "true",
     autoSignIn: true,
   },
-  // doit rester le dernier plugin : pose les cookies depuis les server actions
-  plugins: [nextCookies()],
+  plugins: [
+    // Clés d'API pour une autre application (G Koi À Faire) : une clé n'ouvre que ses permissions,
+    // vérifiées route par route (src/app/api/integrations) ; elle ne crée jamais de session.
+    apiKey({
+      defaultPrefix: "pec_",
+      rateLimit: { enabled: false },
+      permissions: { defaultPermissions: { wishes: ["sync"] } },
+    }),
+    // doit rester le dernier plugin : pose les cookies depuis les server actions
+    nextCookies(),
+  ],
 });

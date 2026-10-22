@@ -1,4 +1,5 @@
 import "server-only";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -6,8 +7,8 @@ import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db, schema as s } from "@/lib/db";
 import { DEFAULT_ACCOUNT, DEFAULT_CATEGORIES } from "@/lib/domain/defaults";
-import type { Account, Budget, Category, ForecastDecision, ForecastItem, Goal, PlaceMemoryEntry, Profile, Recurrence, Transaction } from "@/lib/domain/types";
-import { toAccount, toBudget, toCategory, toForecastDecision, toForecastItem, toGoal, toPlaceMemory, toProfile, toRecurrence, toTransaction } from "./mappers";
+import type { Account, Budget, Category, ForecastDecision, ForecastItem, Goal, PlaceMemoryEntry, Profile, Recurrence, Transaction, Wish } from "@/lib/domain/types";
+import { toAccount, toBudget, toCategory, toForecastDecision, toForecastItem, toGoal, toPlaceMemory, toProfile, toRecurrence, toTransaction, toWish } from "./mappers";
 
 /**
  * Couche de lecture côté serveur. Pas de RLS : chaque requête filtre explicitement sur
@@ -20,7 +21,21 @@ export interface SessionUser {
   name: string;
 }
 
+// Utilisateur désigné par une route d'intégration (clé d'API vérifiée), à la place du cookie
+const actingUser = new AsyncLocalStorage<SessionUser>();
+
+/**
+ * Exécute `fn` au nom de `user`, authentifié autrement que par le cookie de session (clé d'API
+ * vérifiée avec ses permissions). Réservé aux routes de src/app/api/integrations : rien côté
+ * navigateur ne peut l'atteindre, et une clé d'API ne crée jamais de session.
+ */
+export function runAsUser<T>(user: SessionUser, fn: () => Promise<T>): Promise<T> {
+  return actingUser.run(user, fn);
+}
+
 export const getSession = cache(async (): Promise<{ user: SessionUser }> => {
+  const acting = actingUser.getStore();
+  if (acting) return { user: acting };
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/login");
   const { id, email, name } = session.user;
@@ -166,6 +181,12 @@ export const getForecastDecisions = cache(async (fromMonth?: string): Promise<Fo
     .from(d)
     .where(and(eq(d.user_id, user.id), fromMonth ? gte(d.month, fromMonth) : undefined));
   return rows.map(toForecastDecision);
+});
+
+export const getWishes = cache(async (): Promise<Wish[]> => {
+  const { user } = await getSession();
+  const rows = await db.select().from(s.wishes).where(eq(s.wishes.user_id, user.id)).orderBy(asc(s.wishes.created_at));
+  return rows.map(toWish);
 });
 
 export const getGoals = cache(async (): Promise<Goal[]> => {

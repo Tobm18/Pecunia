@@ -60,6 +60,7 @@ src/lib/data/            Accès aux données : lectures (queries.ts) et mutation
 src/components/          UI : primitives, navigation, saisie, transactions, comptes, graphiques
 src/app/(auth)/          Connexion, inscription
 src/app/(app)/           Écrans : accueil, saisie, transactions, comptes, budgets, catégories, paramètres
+src/app/api/integrations/ Applications reliées (G Koi À Faire), authentifiées par clé d'API
 src/proxy.ts             Redirection vers /login sans cookie de session
 ```
 
@@ -117,6 +118,16 @@ Conseil : importer d'abord le compte courant (les virements vers l'épargne cré
 - [x] **Analyses** (`/analyses`) : taux d'épargne, patrimoine sur 12 mois, épargne cumulée par compte (virements / intérêts), comparaison avec le mois précédent, évolution d'une catégorie, classement des lieux
 - [x] Tableau de bord : bloc **« À venir »** (5 prochaines échéances et dépenses prévues)
 - [x] **Suppression du compte utilisateur** (Paramètres), confirmée par l'email ou « SUPPRIMER »
+
+### Application reliée : G Koi À Faire
+
+[G Koi À Faire](https://g-koi-a-faire.tballester.fr) (liste de tâches et d'achats) envoie à Pecunia ses achats et réparations chiffrés, et reçoit en retour ce qu'on peut vraiment dépenser ce mois-ci (migration `0002_wishes_api_keys.sql`).
+
+- **Souhaits** (`wishes`) : la liste envoyée par G Koi remplace la précédente. Chaque souhait est **proposé** dans le Prévisionnel, au mois de son échéance (ou au mois en cours), sur le compte principal : **oui** crée une dépense prévue liée au souhait, **non** le refuse pour le mois, **modifier** change montant, date ou compte.
+- **Marge renvoyée** : solde prévu en fin de mois des comptes « dans le budget », souhaits non comptés, moins un **coussin de sécurité** réglable dans Paramètres.
+- **Boucle fermée** : quand une vraie dépense est rapprochée (« Lier » à la saisie, libellé différent accepté si le montant est à ±25 % sous 45 jours), G Koi coche l'achat au montant réellement payé, puis le souhait disparaît de Pecunia.
+- **Clé d'API** (Better Auth, plugin `api-key`) : créée et révoquée dans Paramètres → « Applications reliées », affichée une seule fois, limitée à la permission `wishes:sync`. Côté G Koi : `npx wrangler secret put PECUNIA_API_KEY`.
+- API : `GET /api/integrations/wishes` (rapport : marge et état de chaque souhait), `PUT` (synchronise la liste puis renvoie le rapport). Clé dans l'en-tête `x-api-key` ou `Authorization: Bearer`. Les requêtes s'exécutent au nom du propriétaire de la clé, avec le même filtrage par utilisateur que l'app.
 
 ### Interface et mouvement
 

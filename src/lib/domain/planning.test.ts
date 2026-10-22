@@ -94,7 +94,7 @@ describe("prévisionnel", () => {
     referenceIncomeCents: 0,
   });
   const forecastItems: ForecastItem[] = [
-    { id: "f1", accountId: "courant", label: "Assurance auto", amountCents: -120000, date: "2026-10-20", status: "planned", linkedTransactionId: null, seriesId: null, toAccountId: null },
+    { id: "f1", accountId: "courant", label: "Assurance auto", amountCents: -120000, date: "2026-10-20", status: "planned", linkedTransactionId: null, seriesId: null, toAccountId: null, wishId: null },
   ];
   const decision = (sourceKey: string, status: ForecastDecision["status"], over: Partial<ForecastDecision> = {}): ForecastDecision => ({
     id: sourceKey,
@@ -165,7 +165,7 @@ describe("prévisionnel", () => {
       startDay: 1,
       occurrences: [],
       forecastItems: [
-        { id: "v", accountId: "livret", toAccountId: "courant", label: "Renflouer", amountCents: -50000, date: "2026-09-25", status: "planned", linkedTransactionId: null, seriesId: null },
+        { id: "v", accountId: "livret", toAccountId: "courant", label: "Renflouer", amountCents: -50000, date: "2026-09-25", status: "planned", linkedTransactionId: null, seriesId: null, wishId: null },
       ],
       decisions: [],
       budgets: null,

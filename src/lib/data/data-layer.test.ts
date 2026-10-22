@@ -3,7 +3,7 @@
  * db/migrations. Sans RLS, l'isolation entre utilisateurs repose sur les filtres user_id
  * et les clés étrangères composites : ces tests la vérifient action par action.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -32,6 +32,7 @@ vi.mock("next/navigation", () => ({
 const q = await import("./queries");
 const actions = await import("./actions");
 const planning = await import("./planning-actions");
+const wishes = await import("./wishes");
 
 const alice = { id: "00000000-0000-4000-8000-00000000000a", email: "alice@example.com", name: "Alice" };
 const bob = { id: "00000000-0000-4000-8000-00000000000b", email: "bob@example.com", name: "" };
@@ -53,7 +54,9 @@ const entry = (over: Partial<EntryInput>): EntryInput => ({
 });
 
 beforeAll(async () => {
-  await pg.exec(readFileSync(path.join(process.cwd(), "db/migrations/0001_init.sql"), "utf8"));
+  // toutes les migrations, dans l'ordre (comme scripts/migrate.mjs)
+  const dir = path.join(process.cwd(), "db/migrations");
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) await pg.exec(readFileSync(path.join(dir, file), "utf8"));
   for (const u of [alice, bob]) await db.insert(schema.user).values({ id: u.id, email: u.email, name: u.name });
 });
 
@@ -225,5 +228,53 @@ describe("suppression du compte", () => {
     expect(await db.select().from(schema.user).where(eq(schema.user.id, bob.id))).toEqual([]);
     as(alice);
     expect((await q.getTransactions()).length).toBeGreaterThan(0);
+  });
+});
+
+describe("souhaits (G Koi À Faire)", () => {
+  const list = [
+    { externalId: "g1", title: "Changer les 2 pneus avant", amountCents: 12200, priority: "high" as const, dueDate: null },
+    { externalId: "g2", title: "Racheter une bouilloire", amountCents: 3500 },
+  ];
+
+  it("synchronise la liste de l'utilisateur, sans toucher aux autres", async () => {
+    as(alice);
+    expect((await wishes.syncWishes({ wishes: list })).ok).toBe(true);
+    expect((await q.getWishes()).map((w) => w.externalId)).toEqual(["g1", "g2"]);
+    as(bob);
+    expect(await q.getWishes()).toEqual([]);
+    expect((await wishes.syncWishes({ wishes: [] })).ok).toBe(true);
+    as(alice);
+    expect(await q.getWishes()).toHaveLength(2);
+  });
+
+  it("refuse une liste invalide", async () => {
+    as(alice);
+    expect((await wishes.syncWishes({ wishes: [{ externalId: "x", title: "", amountCents: -1 }] })).ok).toBe(false);
+  });
+
+  it("accepter crée une ligne prévue liée ; le souhait disparu emporte sa ligne non réalisée", async () => {
+    as(alice);
+    const [pneus] = await q.getWishes();
+    const month = (await wishes.wishReport()).month;
+    expect((await planning.decideProposals([{ sourceKey: `wish:${pneus!.id}:${month}`, month, status: "accepted", amount: "130" }])).ok).toBe(true);
+    const items = (await q.getForecastItems()).filter((f) => f.wishId === pneus!.id);
+    expect(items).toMatchObject([{ status: "planned", amountCents: -13000, label: "Changer les 2 pneus avant" }]);
+
+    const report = await wishes.wishReport();
+    expect(report.wishes.find((w) => w.externalId === "g1")).toMatchObject({ state: "planned", amountCents: 13000 });
+    expect(report.wishes.find((w) => w.externalId === "g2")).toMatchObject({ state: "proposed", amountCents: 3500 });
+
+    // pneus faits ou abandonnés dans G Koi À Faire : il n'est plus dans la liste
+    await wishes.syncWishes({ wishes: [list[1]!] });
+    expect((await q.getForecastItems()).some((f) => f.label === "Changer les 2 pneus avant")).toBe(false);
+  });
+
+  it("refuser pour le mois", async () => {
+    as(alice);
+    const [bouilloire] = await q.getWishes();
+    const month = (await wishes.wishReport()).month;
+    expect((await planning.decideProposals([{ sourceKey: `wish:${bouilloire!.id}:${month}`, month, status: "rejected" }])).ok).toBe(true);
+    expect((await wishes.wishReport()).wishes).toMatchObject([{ externalId: "g2", state: "rejected" }]);
   });
 });

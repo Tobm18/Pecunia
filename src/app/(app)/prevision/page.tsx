@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { clsx } from "clsx";
 import { TriangleAlert } from "lucide-react";
-import { getAppData, getForecastDecisions, getTransactions } from "@/lib/data/queries";
+import { getAppData, getForecastDecisions, getTransactions, getWishes } from "@/lib/data/queries";
 import { getBudgetOverview, withParams } from "@/lib/data/views";
 import { addMonths, monthAbbr, monthKeyOf, monthName, monthPeriod, todayIso } from "@/lib/domain/dates";
 import { buildForecast, plannedEffects, proposalEffects } from "@/lib/domain/forecast";
@@ -29,10 +29,11 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
   const from = monthPeriod(current, startDay).start;
   const to = monthPeriod(addMonths(current, horizon - 1), startDay).end;
   const range = occurrenceWindow(from, to);
-  const [txs, budgets, decisions] = await Promise.all([
+  const [txs, budgets, decisions, wishes] = await Promise.all([
     getTransactions({ from: range.from, to: range.to }),
     getBudgetOverview(current),
     getForecastDecisions(current),
+    getWishes(),
   ]);
   const currentBalances = Object.fromEntries(active.map((a) => [a.id, balances.get(a.id)?.balanceCents ?? a.initialBalanceCents]));
   const { months, alerts } = buildForecast({
@@ -45,6 +46,7 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
     forecastItems,
     decisions,
     budgets,
+    wishes,
   });
 
   const shown = accountId ? active.filter((a) => a.id === accountId) : active;
@@ -85,6 +87,8 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
         decided: p.decided,
         itemId: null,
         seriesId: null,
+        priority: p.priority ?? null,
+        fromWish: p.source === "wish",
       })),
     ...selected.planned
       .map((f) => ({ f, effects: plannedEffects(f) }))
@@ -107,6 +111,8 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
         decided: true,
         itemId: f.id,
         seriesId: f.seriesId,
+        priority: null,
+        fromWish: !!f.wishId,
       })),
   ];
   const retained = lines.filter((l) => l.status === "accepted" || l.status === "planned");
@@ -175,8 +181,8 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
         <h2 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-n-700">Solde projeté en fin de mois</h2>
         <ForecastChart data={chartData} series={shown.map((a) => ({ key: a.id, name: a.name, color: a.color }))} />
         <p className="mt-2 text-[11px] text-n-600">
-          Solde actuel + échéances des récurrences (retenues d&apos;office, sauf refus) + budgets acceptés + entrées / sorties prévues.
-          Les budgets à valider ne sont pas comptés.
+          Solde actuel + échéances des récurrences (retenues d&apos;office, sauf refus) + budgets et souhaits acceptés + entrées / sorties
+          prévues. Les propositions à valider ne sont pas comptées.
         </p>
       </Card>
 
