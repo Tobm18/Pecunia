@@ -31,8 +31,21 @@ export function Row({ label, hint, children }: { label: string; hint?: string; c
 export const linkButtonClass =
   "inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-n-300 px-3 text-sm font-semibold hover:bg-n-100";
 
-/** gkoiStatus : état de la liaison avec G Koi À Faire (null = pas reliée) ; passkeyCount : passkeys enregistrées. */
-export function SettingsForm({ profile, gkoiStatus, passkeyCount }: { profile: Profile; gkoiStatus: string | null; passkeyCount: number }) {
+/**
+ * gkoiStatus : état de la liaison avec G Koi À Faire (null = pas reliée) ; bankStatus : état de la
+ * connexion bancaire (null = pas connectée) ; passkeyCount : passkeys enregistrées.
+ */
+export function SettingsForm({
+  profile,
+  gkoiStatus,
+  bankStatus,
+  passkeyCount,
+}: {
+  profile: Profile;
+  gkoiStatus: string | null;
+  bankStatus: string | null;
+  passkeyCount: number;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -117,6 +130,11 @@ export function SettingsForm({ profile, gkoiStatus, passkeyCount }: { profile: P
           <Row label="Sauvegarde JSON" hint={`Dernière sauvegarde : ${lastBackup}`}>
             {/* la date de dernière sauvegarde est rafraîchie une fois le fichier reçu */}
             <ExportButton format="json" label="JSON" onDone={() => router.refresh()} />
+          </Row>
+          <Row label="Banque" hint={bankStatus ?? "Comptes et transactions importés automatiquement"}>
+            <Link href="/parametres/banque" className={linkButtonClass}>
+              {bankStatus ? "Gérer" : "Connecter"} <ChevronRight size={15} aria-hidden />
+            </Link>
           </Row>
           <Row label="G Koi À Faire" hint={gkoiStatus ?? "Ses achats en attente proposés dans le Prévisionnel"}>
             <Link href="/parametres/g-koi-a-faire" className={linkButtonClass}>

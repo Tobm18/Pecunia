@@ -182,6 +182,8 @@ export const transactions = pgTable("transactions", {
   counterpart_account_id: uuid("counterpart_account_id"),
   transfer_id: uuid("transfer_id"),
   recurrence_id: uuid("recurrence_id"),
+  /** Référence de la ligne chez la banque (connexion bancaire) : évite les doublons à la resynchronisation */
+  bank_ref: text("bank_ref"),
   created_at: ts("created_at").notNull().defaultNow(),
 });
 
@@ -230,6 +232,36 @@ export const wishes = pgTable("wishes", {
   due_date: day("due_date"),
   created_at: ts("created_at").notNull().defaultNow(),
   updated_at: ts("updated_at").notNull().defaultNow(),
+});
+
+/** Consentement donné à une banque (Enable Banking, lecture seule). */
+export const bankConnections = pgTable("bank_connections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: uuid("user_id").notNull(),
+  aspsp_name: text("aspsp_name").notNull(),
+  state: text("state"),
+  session_id: text("session_id"),
+  status: text("status", { enum: ["pending", "active", "expired", "error"] })
+    .notNull()
+    .default("pending"),
+  valid_until: ts("valid_until"),
+  last_sync_at: ts("last_sync_at"),
+  last_error: text("last_error"),
+  created_at: ts("created_at").notNull().defaultNow(),
+});
+
+/** Compte distant d'une connexion, éventuellement relié à un compte Pecunia. */
+export const bankAccounts = pgTable("bank_accounts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: uuid("user_id").notNull(),
+  connection_id: uuid("connection_id").notNull(),
+  uid: text("uid").notNull(),
+  iban: text("iban"),
+  name: text("name"),
+  currency: text("currency"),
+  account_id: uuid("account_id"),
+  synced_until: day("synced_until"),
+  bank_balance_cents: cents("bank_balance_cents"),
 });
 
 export const forecastDecisions = pgTable("forecast_decisions", {
