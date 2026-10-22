@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db, schema as s } from "@/lib/db";
 import { buildEntry, adjustmentCents, type EntryInput } from "@/lib/domain/entries";
@@ -305,8 +305,25 @@ export async function deleteAccount(id: string): Promise<ActionResult> {
   if (!uuid.safeParse(id).success) return fail(GENERIC_ERROR);
   const { user } = await getSession();
   if (!(await getAccounts()).some((a) => a.id === id)) return fail("Ce compte n'existe plus.");
+  const t = s.transactions;
   try {
-    await db.delete(s.accounts).where(and(eq(s.accounts.id, id), eq(s.accounts.user_id, user.id)));
+    await db.transaction(async (tx) => {
+      // les virements avec ce compte perdent leur moitié : de l'autre côté, ils redeviennent de
+      // simples entrées / sorties (et pourront être reliés de nouveau à un autre compte)
+      const halves = await tx
+        .select({ transfer_id: t.transfer_id })
+        .from(t)
+        .where(and(eq(t.account_id, id), eq(t.user_id, user.id), isNotNull(t.transfer_id)));
+      const transferIds = halves.map((h) => h.transfer_id!);
+      for (let i = 0; i < transferIds.length; i += 500) {
+        const chunk = transferIds.slice(i, i + 500);
+        await tx
+          .update(t)
+          .set({ type: sql`case when ${t.amount_cents} < 0 then 'out'::transaction_type else 'in'::transaction_type end`, transfer_id: null, counterpart_account_id: null })
+          .where(and(eq(t.user_id, user.id), ne(t.account_id, id), inArray(t.transfer_id, chunk)));
+      }
+      await tx.delete(s.accounts).where(and(eq(s.accounts.id, id), eq(s.accounts.user_id, user.id)));
+    });
   } catch {
     return fail("Suppression impossible, réessaie dans un instant.");
   }

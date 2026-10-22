@@ -79,15 +79,17 @@ export function parseCsv(text: string): ParsedCsv {
 // Colonnes
 // ---------------------------------------------------------------------------
 
-export type ColumnRole = "label" | "date" | "credit" | "debit" | "amount" | "balance" | "ignore";
+export type ColumnRole = "label" | "extra" | "date" | "credit" | "debit" | "amount" | "balance" | "nature" | "ignore";
 
 export const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
   label: "Lieu / libellé",
+  extra: "Complément du libellé",
   date: "Date",
   credit: "Recette (entrée)",
   debit: "Dépense (sortie)",
   amount: "Montant signé",
   balance: "Solde (total)",
+  nature: "Nature (virement interne…)",
   ignore: "Ignorer",
 };
 
@@ -98,14 +100,21 @@ export const normalizeText = (s: string) =>
     .toLowerCase()
     .trim();
 
+// Export Banque Populaire : « Date de comptabilisation », « Libelle operation », « Informations
+// complementaires » (suite du libellé), « Sous categorie » (« Virement interne »).
 const ROLE_PATTERNS: [ColumnRole, RegExp][] = [
-  ["date", /^(date|jour|date operation|date d'operation)$/],
+  ["date", /^(date|jour|date operation|date d'operation|date de comptabilisation|date comptable)$/],
   ["credit", /^(recette|recettes|credit|credits|entree|entrees|encaissement)$/],
   ["debit", /^(depense|depenses|debit|debits|sortie|sorties|decaissement)$/],
   ["amount", /^(montant|somme|valeur|montant \(eur\)|montant eur)$/],
   ["balance", /^(total|solde|solde courant|balance)$/],
-  ["label", /^(raison|libelle|lieu|description|intitule|motif|operation|nature|tiers|beneficiaire)$/],
+  ["label", /^(raison|libelle|lieu|description|intitule|motif|operation|nature|tiers|beneficiaire|libelle operation)$/],
+  ["extra", /^(informations complementaires|complement|complement libelle)$/],
+  ["nature", /^(sous categorie|sous-categorie)$/],
 ];
+
+/** Nature d'une ligne qui désigne un virement entre deux comptes du même titulaire */
+export const INTERNAL_TRANSFER_PATTERN = /virement interne/;
 
 /** Devine le rôle de chaque colonne d'après son en-tête. */
 export function guessColumns(header: string[]): ColumnRole[] {
@@ -137,6 +146,8 @@ export function columnsProblem(roles: ColumnRole[]): string | null {
 export function parseImportAmount(raw: string): number | null {
   let s = raw.replace(/[\s  €]|EUR/gi, "").replace(/[−–]/g, "-");
   if (!s) return null;
+  // signe « + » explicite des crédits (export Banque Populaire : « +10,00 »)
+  if (s.startsWith("+")) s = s.slice(1);
   if (s.startsWith("(") && s.endsWith(")")) s = "-" + s.slice(1, -1);
   if (s.includes(",") && s.includes(".")) s = s.replace(/\./g, ""); // 1.527,03
   else if ((s.match(/\./g) ?? []).length > 1) s = s.replace(/\./g, ""); // 1.527.000
@@ -177,6 +188,8 @@ export interface ImportRow {
   /** Signé : dépense < 0, recette > 0 */
   cents: number;
   balanceCents: number | null;
+  /** Virement entre deux comptes du titulaire, d'après la colonne « Nature » */
+  internalTransfer: boolean;
 }
 
 export interface RowsResult {
@@ -189,8 +202,8 @@ export const EMPTY_LABEL = "Sans libellé";
 
 export function extractRows(parsed: ParsedCsv, roles: ColumnRole[], fileIndex: number): RowsResult {
   const col = (role: ColumnRole) => roles.indexOf(role);
-  const [iLabel, iDate, iCredit, iDebit, iAmount, iBalance] = (
-    ["label", "date", "credit", "debit", "amount", "balance"] as ColumnRole[]
+  const [iLabel, iDate, iCredit, iDebit, iAmount, iBalance, iExtra, iNature] = (
+    ["label", "date", "credit", "debit", "amount", "balance", "extra", "nature"] as ColumnRole[]
   ).map(col);
   const rows: ImportRow[] = [];
   const errors: RowsResult["errors"] = [];
@@ -231,14 +244,18 @@ export function extractRows(parsed: ParsedCsv, roles: ColumnRole[], fileIndex: n
     }
     if (cents === 0) continue; // ligne neutre : rien à importer
     const balance = iBalance! >= 0 && cell(iBalance!) ? parseImportAmount(cell(iBalance!)) : null;
+    // complément du libellé, sans le tiret final de l'export Banque Populaire (« Vir. vers Livret A- »)
+    const extra = cell(iExtra!).trim().replace(/-+$/, "").trim();
+    const label = [cell(iLabel!).trim(), extra].filter(Boolean).join(" ");
     rows.push({
       id: `${fileIndex}:${line}`,
       fileIndex,
       line,
       date,
-      label: cell(iLabel!).trim() || EMPTY_LABEL,
+      label: label || EMPTY_LABEL,
       cents,
       balanceCents: balance,
+      internalTransfer: INTERNAL_TRANSFER_PATTERN.test(normalizeText(cell(iNature!))),
     });
   }
   return { rows, errors };
@@ -430,15 +447,18 @@ export function buildDrafts(params: {
   accounts: Account[];
   categorizer: Categorizer;
   existing: ExistingLine[];
+  /** Autre compte proposé pour un virement interne dont le libellé ne nomme aucun compte */
+  internalTransferAccountId?: string | null;
 }): DraftRow[] {
   const { rows, account, accounts, categorizer, existing } = params;
+  const fallback = accounts.find((a) => a.id === params.internalTransferAccountId && a.id !== account.id && !a.archivedAt) ?? null;
   const matches = matchExisting(
     rows.map((r) => ({ key: r.id, date: r.date, cents: r.cents })),
     existing,
   );
   return rows.map((r) => {
     const out = r.cents < 0;
-    const other = guessTransferAccount(r.label, accounts, account.id);
+    const other = guessTransferAccount(r.label, accounts, account.id) ?? (r.internalTransfer ? fallback : null);
     const interest = !out && account.type === "savings" && INTEREST_PATTERN.test(normalizeText(r.label));
     const type: DraftType = other ? (out ? "transfer_out" : "transfer_in") : out ? "out" : interest ? "interest" : "in";
     const match = matches.get(r.id);

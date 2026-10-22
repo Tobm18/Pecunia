@@ -274,3 +274,48 @@ describe("virements reliés à une ligne existante de l'autre compte", () => {
     expect(findTransferLinks([{ ...drafts[0]!, amount: "99,99" }], otherLines).size).toBe(0);
   });
 });
+
+// Export Banque Populaire (extrait d'un livret)
+const BPOP = [
+  "Date de comptabilisation;Libelle simplifie;Libelle operation;Reference;Informations complementaires;Type operation;Categorie;Sous categorie;Debit;Credit;Date operation;Date de valeur;Pointage operation",
+  "22/10/2026;M TOM BALLESTER;VIR M TOM BALLESTER;6043245;Vir. vers Compte Du Personnel-;Virement;Transaction exclue;Virement interne;-10,00;;22/10/2026;16/10/2026;0",
+  "22/10/2026;M TOM BALLESTER;VIR M TOM BALLESTER;0730133;Vir. vers Livret A-;Virement recu;Transaction exclue;Virement interne;;+10,00;22/10/2026;01/11/2026;0",
+  "31/12/2025;INTERETS;INTERETS;;AU 31/12/25-;Divers;A categoriser - rentree d'argent;Rentree d'argent - a categoriser;;+43,70;31/12/2025;01/01/2026;0",
+  "",
+].join("\r\n");
+
+describe("export Banque Populaire", () => {
+  it("reconnaît les colonnes", () => {
+    const roles = guessColumns(parseCsv(BPOP).header);
+    expect(roles.slice(0, 10)).toEqual(["date", "ignore", "label", "ignore", "extra", "ignore", "ignore", "nature", "debit", "credit"]);
+    expect(columnsProblem(roles)).toBeNull();
+  });
+
+  it("lit les crédits signés « + », complète le libellé et repère les virements internes", () => {
+    const { rows, errors } = load(BPOP, 0);
+    expect(errors).toEqual([]);
+    expect(rows.map((r) => [r.date, r.cents, r.label, r.internalTransfer])).toEqual([
+      ["2026-10-22", -1000, "VIR M TOM BALLESTER Vir. vers Compte Du Personnel", true],
+      ["2026-10-22", 1000, "VIR M TOM BALLESTER Vir. vers Livret A", true],
+      ["2025-12-31", 4370, "INTERETS AU 31/12/25", false],
+    ]);
+    expect(parseImportAmount("+1100,00")).toBe(110000);
+  });
+
+  it("un virement interne sans compte nommé va vers le compte proposé, les intérêts restent des intérêts", () => {
+    const livret = accounts[1]!;
+    const drafts = buildDrafts({
+      rows: load(BPOP, 0).rows,
+      account: livret,
+      accounts,
+      categorizer: createCategorizer(categories, []),
+      existing: [],
+      internalTransferAccountId: "cc",
+    });
+    expect(drafts.map((d) => [d.type, d.counterpartId])).toEqual([
+      ["transfer_out", "cc"],
+      ["transfer_in", "cc"],
+      ["interest", null],
+    ]);
+  });
+});

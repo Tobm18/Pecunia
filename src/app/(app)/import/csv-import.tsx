@@ -108,7 +108,13 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
         startTransition(() => {
           setOtherLines(lines.filter((l) => l.accountId !== target.id));
           const existing = lines.filter((l) => l.accountId === target.id);
-          setDrafts(buildDrafts({ rows, account: target, accounts: activeAccounts, categorizer, existing }));
+          // virement interne sans compte nommé : depuis un livret, c'est le compte courant ; depuis le
+          // courant, le livret s'il n'y en a qu'un (sinon à choisir ligne par ligne)
+          const others = activeAccounts.filter((a) => a.id !== target.id);
+          const savings = others.filter((a) => a.type === "savings");
+          const internalTransferAccountId =
+            target.type === "savings" ? (others.find((a) => a.type === "current")?.id ?? null) : savings.length === 1 ? savings[0]!.id : null;
+          setDrafts(buildDrafts({ rows, account: target, accounts: activeAccounts, categorizer, existing, internalTransferAccountId }));
         });
       });
     },
