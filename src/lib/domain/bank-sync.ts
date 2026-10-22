@@ -77,18 +77,29 @@ export function matchesIdentifier(counterparty: string | null, identifier: strin
 
 /**
  * Compte interne visé par une ligne : d'abord par le compte en face (l'identifiant le plus précis),
- * à défaut par mot-clé du libellé (le plus long).
+ * à défaut par mot-clé du libellé (le plus long). Le mot-clé « reçus » (keywordIn) ne s'applique
+ * qu'aux lignes créditrices : un virement reçu d'un livret nomme la destination, pas la source.
  */
-export function findInternalAccount<T extends { id: string; identifier: string | null; keyword: string | null }>(
-  line: { counterparty: string | null; label: string | null },
+export function findInternalAccount<T extends { id: string; identifier: string | null; keyword: string | null; keywordIn?: string | null }>(
+  line: { counterparty: string | null; label: string | null; cents: number },
   accounts: T[],
 ): T | null {
   const size = (s: string | null) => (s ?? "").length;
   const byIdentifier = accounts.filter((a) => matchesIdentifier(line.counterparty, a.identifier));
   if (byIdentifier.length) return byIdentifier.reduce((best, a) => (size(normalizeIdentifier(a.identifier)) > size(normalizeIdentifier(best.identifier)) ? a : best));
-  const byKeyword = accounts.filter((a) => matchesInternalAccount({ counterparty: null, label: line.label }, { identifier: null, keyword: a.keyword }));
-  if (byKeyword.length) return byKeyword.reduce((best, a) => (size(a.keyword) > size(best.keyword) ? a : best));
-  return null;
+  let best: T | null = null;
+  let bestSize = 0;
+  for (const a of accounts) {
+    const keywords = line.cents > 0 ? [a.keyword, a.keywordIn ?? null] : [a.keyword];
+    for (const keyword of keywords) {
+      if (!matchesInternalAccount({ counterparty: null, label: line.label }, { identifier: null, keyword })) continue;
+      if (size(keyword) > bestSize) {
+        best = a;
+        bestSize = size(keyword);
+      }
+    }
+  }
+  return best;
 }
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();

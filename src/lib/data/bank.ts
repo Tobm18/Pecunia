@@ -345,9 +345,14 @@ export async function syncConnection(userId: string, connectionId: string): Prom
 async function internalAccounts(userId: string) {
   const [accounts, synced] = await Promise.all([
     db
-      .select({ id: s.accounts.id, identifier: s.accounts.bank_identifier, keyword: s.accounts.transfer_keyword })
+      .select({ id: s.accounts.id, identifier: s.accounts.bank_identifier, keyword: s.accounts.transfer_keyword, keywordIn: s.accounts.transfer_keyword_in })
       .from(s.accounts)
-      .where(and(eq(s.accounts.user_id, userId), or(isNotNull(s.accounts.bank_identifier), isNotNull(s.accounts.transfer_keyword)))),
+      .where(
+        and(
+          eq(s.accounts.user_id, userId),
+          or(isNotNull(s.accounts.bank_identifier), isNotNull(s.accounts.transfer_keyword), isNotNull(s.accounts.transfer_keyword_in)),
+        ),
+      ),
     db
       .select({ id: s.bankAccounts.account_id })
       .from(s.bankAccounts)
@@ -373,7 +378,7 @@ async function applyInternalTransfers(userId: string): Promise<number> {
     .where(and(eq(t.user_id, userId), isNotNull(t.bank_ref), isNull(t.transfer_id), inArray(t.type, ["in", "out"])));
   let converted = 0;
   for (const row of candidates) {
-    const target = findInternalAccount({ counterparty: row.bank_counterparty, label: row.place }, internal);
+    const target = findInternalAccount({ counterparty: row.bank_counterparty, label: row.place, cents: Number(row.amount_cents) }, internal);
     if (!target || target.id === row.account_id) continue;
     const transferId = crypto.randomUUID();
     await db.transaction(async (tx) => {
@@ -437,12 +442,20 @@ export async function refreshInternalAccounts(userId: string): Promise<{ convert
 /** Réglages d'un compte interne : identifiant reconnu dans les virements, solde réel connu. */
 export async function saveInternalAccount(
   userId: string,
-  input: { accountId: string; identifier: string | null; keyword: string | null; balanceCents: number | null; balanceDate: string | null },
+  input: {
+    accountId: string;
+    identifier: string | null;
+    keyword: string | null;
+    keywordIn: string | null;
+    balanceCents: number | null;
+    balanceDate: string | null;
+  },
 ): Promise<{ ok: true; converted: number } | { ok: false; error: string }> {
   const identifier = normalizeIdentifier(input.identifier);
   if (identifier && identifier.length < MIN_IDENTIFIER_LENGTH) return { ok: false, error: `L'identifiant doit faire au moins ${MIN_IDENTIFIER_LENGTH} caractères.` };
   const keyword = input.keyword?.replace(/\s+/g, " ").trim() || null;
-  if (keyword && keyword.length < MIN_KEYWORD_LENGTH) return { ok: false, error: `Le mot-clé doit faire au moins ${MIN_KEYWORD_LENGTH} caractères.` };
+  const keywordIn = input.keywordIn?.replace(/\s+/g, " ").trim() || null;
+  if ([keyword, keywordIn].some((k) => k && k.length < MIN_KEYWORD_LENGTH)) return { ok: false, error: `Un mot-clé doit faire au moins ${MIN_KEYWORD_LENGTH} caractères.` };
   const [account] = await db
     .select({ id: s.accounts.id })
     .from(s.accounts)
@@ -454,6 +467,7 @@ export async function saveInternalAccount(
     .set({
       bank_identifier: identifier,
       transfer_keyword: keyword,
+      transfer_keyword_in: keywordIn,
       reference_balance_cents: withBalance ? input.balanceCents : null,
       reference_balance_date: withBalance ? input.balanceDate : null,
     })
@@ -526,6 +540,7 @@ export interface BankOverview {
     balanceCents: number;
     identifier: string | null;
     keyword: string | null;
+    keywordIn: string | null;
     referenceBalanceCents: number | null;
     referenceBalanceDate: string | null;
   }[];
@@ -551,6 +566,7 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
         archived_at: s.accounts.archived_at,
         bank_identifier: s.accounts.bank_identifier,
         transfer_keyword: s.accounts.transfer_keyword,
+        transfer_keyword_in: s.accounts.transfer_keyword_in,
         reference_balance_cents: s.accounts.reference_balance_cents,
         reference_balance_date: s.accounts.reference_balance_date,
         balance: s.accountBalances.balance_cents,
@@ -609,6 +625,7 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
       balanceCents: Number(a.balance ?? 0),
       identifier: a.bank_identifier,
       keyword: a.transfer_keyword,
+      keywordIn: a.transfer_keyword_in,
       referenceBalanceCents: a.reference_balance_cents === null ? null : Number(a.reference_balance_cents),
       referenceBalanceDate: a.reference_balance_date,
     })),

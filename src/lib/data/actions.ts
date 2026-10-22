@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db, schema as s } from "@/lib/db";
 import { buildEntry, adjustmentCents, type EntryInput } from "@/lib/domain/entries";
@@ -182,8 +182,18 @@ export async function updateTransaction(id: string, input: EntryInput): Promise<
       // suppression et recréation atomiques : jamais de virement à moitié enregistré
       await db.transaction(async (tx) => {
         const target = wasTransfer ? eq(t.transfer_id, existing.transfer_id!) : eq(t.id, id);
+        // une ligne venue de la banque garde sa référence : sinon la synchronisation la réimporterait en double
+        const fromBank = await tx
+          .select({ account_id: t.account_id, bank_ref: t.bank_ref, bank_counterparty: t.bank_counterparty })
+          .from(t)
+          .where(and(target, eq(t.user_id, user.id), isNotNull(t.bank_ref)));
         await tx.delete(t).where(and(target, eq(t.user_id, user.id)));
-        await tx.insert(t).values(built.rows.map((r) => transactionToRow(r, user.id)));
+        await tx.insert(t).values(
+          built.rows.map((r) => {
+            const bank = fromBank.find((b) => b.account_id === r.accountId);
+            return { ...transactionToRow(r, user.id), ...(bank ? { bank_ref: bank.bank_ref, bank_counterparty: bank.bank_counterparty } : {}) };
+          }),
+        );
       });
     }
   } catch {

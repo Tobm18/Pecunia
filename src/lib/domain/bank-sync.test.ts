@@ -116,8 +116,8 @@ describe("compte en face", () => {
       { id: "court", identifier: "10707", keyword: null },
       { id: "long", identifier: "12345678901", keyword: null },
     ];
-    expect(findInternalAccount({ counterparty: "FR7610707000001234567890123", label: null }, accounts)?.id).toBe("long");
-    expect(findInternalAccount({ counterparty: "FR76000", label: null }, accounts)).toBeNull();
+    expect(findInternalAccount({ counterparty: "FR7610707000001234567890123", label: null, cents: -100 }, accounts)?.id).toBe("long");
+    expect(findInternalAccount({ counterparty: "FR76000", label: null, cents: -100 }, accounts)).toBeNull();
   });
 
   it("à défaut du compte en face, reconnaît le mot-clé du libellé", () => {
@@ -125,10 +125,17 @@ describe("compte en face", () => {
       { id: "livretA", identifier: null, keyword: "livret a" },
       { id: "ljr", identifier: null, keyword: "Livret Jeune" },
     ];
-    expect(findInternalAccount({ counterparty: null, label: "VIR M TOM BALLESTER Vir. vers Livret A" }, accounts)?.id).toBe("livretA");
-    expect(findInternalAccount({ counterparty: null, label: "VIR vers LIVRET JEUNE" }, accounts)?.id).toBe("ljr");
-    expect(findInternalAccount({ counterparty: null, label: "CB CARREFOUR" }, accounts)).toBeNull();
+    expect(findInternalAccount({ counterparty: null, label: "VIR M TOM BALLESTER Vir. vers Livret A", cents: -1000 }, accounts)?.id).toBe("livretA");
+    expect(findInternalAccount({ counterparty: null, label: "VIR vers LIVRET JEUNE", cents: -1000 }, accounts)?.id).toBe("ljr");
+    expect(findInternalAccount({ counterparty: null, label: "CB CARREFOUR", cents: -1000 }, accounts)).toBeNull();
     expect(matchesInternalAccount({ counterparty: null, label: "ab" }, { identifier: null, keyword: "ab" })).toBe(false);
+  });
+
+  it("virement reçu : le mot-clé « reçus » ne vaut que pour les crédits", () => {
+    const accounts = [{ id: "livretA", identifier: null, keyword: "Livret A", keywordIn: "vers Compte Du Personnel" }];
+    const label = "VIR M TOM BALLESTER Vir. vers Compte Du Personnel";
+    expect(findInternalAccount({ counterparty: null, label, cents: 1000 }, accounts)?.id).toBe("livretA");
+    expect(findInternalAccount({ counterparty: null, label, cents: -1000 }, accounts)).toBeNull();
   });
 });
 

@@ -147,6 +147,8 @@ export const accounts = pgTable("accounts", {
   bank_identifier: text("bank_identifier"),
   /** Compte interne : mot-clé cherché dans le libellé (quand la banque ne donne pas le compte en face) */
   transfer_keyword: text("transfer_keyword"),
+  /** Compte interne : mot-clé des virements reçus depuis lui (leur libellé nomme la destination) */
+  transfer_keyword_in: text("transfer_keyword_in"),
   /** Solde réel connu à une date ; le solde initial en est déduit */
   reference_balance_cents: cents("reference_balance_cents"),
   reference_balance_date: day("reference_balance_date"),

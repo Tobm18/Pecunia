@@ -28,12 +28,13 @@ function InternalAccountForm({ account }: { account: PecuniaAccount }) {
   const [pending, startTransition] = useTransition();
   const [identifier, setIdentifier] = useState(account.identifier ?? "");
   const [keyword, setKeyword] = useState(account.keyword ?? "");
+  const [keywordIn, setKeywordIn] = useState(account.keywordIn ?? "");
   const [balance, setBalance] = useState(account.referenceBalanceCents === null ? "" : centsToInput(account.referenceBalanceCents));
   const [date, setDate] = useState(account.referenceBalanceDate ?? todayIso());
 
   function save() {
     startTransition(async () => {
-      const r = await saveInternalAccount({ accountId: account.id, identifier, keyword, balance, balanceDate: balance ? date : "" });
+      const r = await saveInternalAccount({ accountId: account.id, identifier, keyword, keywordIn, balance, balanceDate: balance ? date : "" });
       startTransition(() =>
         toast(r.ok ? (r.data.converted ? `${plural(r.data.converted, "virement")} reconnu${r.data.converted > 1 ? "s" : ""}` : "Compte enregistré") : r.error, r.ok ? "success" : "error"),
       );
@@ -46,11 +47,25 @@ function InternalAccountForm({ account }: { account: PecuniaAccount }) {
         <p className="font-semibold">{account.name}</p>
         <p className="text-sm tabular-nums text-n-700">{formatCents(account.balanceCents)}</p>
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1.4fr_1.4fr_1fr_1fr]">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
-          <Label htmlFor={`kw-${account.id}`}>Mot-clé du libellé</Label>
+          <Label htmlFor={`kw-${account.id}`}>Virements envoyés vers ce compte</Label>
           <Input id={`kw-${account.id}`} value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="Livret A" autoComplete="off" />
+          <p className="mt-1 text-[11px] text-n-600">Mot du libellé côté compte courant (débit)</p>
         </div>
+        <div>
+          <Label htmlFor={`kwin-${account.id}`}>Virements reçus depuis ce compte</Label>
+          <Input
+            id={`kwin-${account.id}`}
+            value={keywordIn}
+            onChange={(e) => setKeywordIn(e.target.value)}
+            placeholder="vers Compte Du Personnel"
+            autoComplete="off"
+          />
+          <p className="mt-1 text-[11px] text-n-600">Mot du libellé côté compte courant (crédit)</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[2fr_1fr_1fr]">
         <div>
           <Label htmlFor={`ident-${account.id}`}>ou IBAN / n° de compte</Label>
           <Input
@@ -146,8 +161,8 @@ export function InternalAccounts({ overview }: { overview: BankOverview }) {
         <h2 className="text-[11px] font-bold uppercase tracking-wider text-n-700">Comptes suivis par les virements</h2>
         <p className="mt-1 text-xs text-n-600">
           Une ligne du compte synchronisé dont le libellé contient le mot-clé (ou dont le compte en face, créditeur ou donneur d&apos;ordre, est celui-ci) devient un
-          virement entre les deux comptes Pecunia. Ta banque ne transmet pas toujours le compte en face : le mot-clé (ex. « Livret A ») est le plus fiable. Le
-          solde réel sert de point de départ : il reste juste même quand l&apos;historique se complète.
+          virement entre les deux comptes Pecunia. Un virement reçu d&apos;un livret nomme la destination (« Vir. vers Compte Du Personnel ») : renseigne-le dans
+          « reçus ». Le solde réel sert de point de départ : il reste juste même quand l&apos;historique se complète.
         </p>
         {internal.length === 0 ? (
           <p className="py-3 text-sm text-n-600">Crée d&apos;abord un compte (bouton « + Nouveau compte » ci-dessus), par exemple ton Livret A.</p>
