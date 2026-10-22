@@ -282,10 +282,6 @@ export async function setAccountInBudget(id: string, inBudget: boolean): Promise
 
 export async function setAccountArchived(id: string, archived: boolean): Promise<ActionResult> {
   if (!uuid.safeParse(id).success) return fail(GENERIC_ERROR);
-  if (archived) {
-    const active = (await getAccounts()).filter((a) => !a.archivedAt);
-    if (active.length <= 1) return fail("Il faut garder au moins un compte actif.");
-  }
   if ((await updateOwned(s.accounts, id, { archived_at: archived ? new Date() : null })) !== null) return fail(GENERIC_ERROR);
   refresh();
   return ok(undefined);
@@ -298,9 +294,7 @@ export async function setAccountArchived(id: string, archived: boolean): Promise
 export async function deleteAccount(id: string): Promise<ActionResult> {
   if (!uuid.safeParse(id).success) return fail(GENERIC_ERROR);
   const { user } = await getSession();
-  const accounts = await getAccounts();
-  if (!accounts.some((a) => a.id === id)) return fail("Ce compte n'existe plus.");
-  if (accounts.length <= 1) return fail("Il faut garder au moins un compte.");
+  if (!(await getAccounts()).some((a) => a.id === id)) return fail("Ce compte n'existe plus.");
   try {
     await db.delete(s.accounts).where(and(eq(s.accounts.id, id), eq(s.accounts.user_id, user.id)));
   } catch {

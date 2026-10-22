@@ -309,7 +309,8 @@ export interface BankOverview {
     lastError: string | null;
     accounts: { id: string; name: string | null; iban: string | null; accountId: string | null; bankBalanceCents: number | null }[];
   } | null;
-  accounts: { id: string; name: string }[];
+  /** Comptes Pecunia (y compris archivés), avec leur solde */
+  accounts: { id: string; name: string; type: "current" | "savings" | "cash"; archived: boolean; balanceCents: number }[];
 }
 
 export async function getBankOverview(userId: string): Promise<BankOverview> {
@@ -321,7 +322,12 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
     .orderBy(desc(c.created_at))
     .limit(1);
   const [accounts, bankAccounts] = await Promise.all([
-    db.select({ id: s.accounts.id, name: s.accounts.name }).from(s.accounts).where(and(eq(s.accounts.user_id, userId))).orderBy(asc(s.accounts.sort_order)),
+    db
+      .select({ id: s.accounts.id, name: s.accounts.name, type: s.accounts.type, archived_at: s.accounts.archived_at, balance: s.accountBalances.balance_cents })
+      .from(s.accounts)
+      .leftJoin(s.accountBalances, eq(s.accountBalances.account_id, s.accounts.id))
+      .where(eq(s.accounts.user_id, userId))
+      .orderBy(asc(s.accounts.sort_order), asc(s.accounts.created_at)),
     conn ? db.select().from(s.bankAccounts).where(eq(s.bankAccounts.connection_id, conn.id)).orderBy(asc(s.bankAccounts.name)) : Promise.resolve([]),
   ]);
   return {
@@ -343,6 +349,6 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
           })),
         }
       : null,
-    accounts,
+    accounts: accounts.map((a) => ({ id: a.id, name: a.name, type: a.type, archived: !!a.archived_at, balanceCents: Number(a.balance ?? 0) })),
   };
 }

@@ -1,12 +1,16 @@
 "use client";
 
+import { Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useState, useTransition } from "react";
+import { deleteAccount } from "@/lib/data/actions";
 import { connectBank, disconnectBank, linkBankAccount, syncBank } from "@/lib/data/bank-actions";
 import type { BankOverview } from "@/lib/data/bank";
 import { formatCents } from "@/lib/domain/money";
+import { NewAccountButton } from "@/components/accounts/account-dialogs";
 import { Banner, Button, Card, Select } from "@/components/ui/primitives";
 import { Modal, useToast } from "@/components/ui/overlay";
-import { Row } from "../settings-form";
+import { linkButtonClass, Row } from "../settings-form";
 
 const NONE = "";
 const NEW = "new";
@@ -17,12 +21,14 @@ const daysLeft = (iso: string) => Math.ceil((Date.parse(iso) - Date.now()) / 86_
 
 /**
  * Banque connectée (Enable Banking, lecture seule) : connexion, liaison de chaque compte bancaire à
- * un compte Pecunia, synchronisation. Les transactions sont ensuite récupérées chaque jour.
+ * un compte Pecunia, synchronisation, et gestion des comptes Pecunia (création, suppression).
+ * Les transactions sont ensuite récupérées chaque jour.
  */
 export function BankSettings({ overview, justConnected, authError }: { overview: BankOverview; justConnected: boolean; authError: string | null }) {
   const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
   const { connection } = overview;
 
   function connect() {
@@ -49,6 +55,16 @@ export function BankSettings({ overview, justConnected, authError }: { overview:
       if (value === NONE) return startTransition(() => toast("Compte délié"));
       const s = await syncBank();
       startTransition(() => toast(s.ok ? `Compte relié · ${s.data.inserted} transaction${s.data.inserted > 1 ? "s" : ""} importée${s.data.inserted > 1 ? "s" : ""}` : s.error, s.ok ? "success" : "error"));
+    });
+  }
+
+  function remove(accountId: string) {
+    startTransition(async () => {
+      const r = await deleteAccount(accountId);
+      startTransition(() => {
+        setConfirmDelete(null);
+        toast(r.ok ? "Compte supprimé" : r.error, r.ok ? "success" : "error");
+      });
     });
   }
 
@@ -134,7 +150,7 @@ export function BankSettings({ overview, justConnected, authError }: { overview:
                   className="w-44"
                 >
                   <option value={NONE}>Ne pas synchroniser</option>
-                  {overview.accounts.map((p) => (
+                  {overview.accounts.filter((p) => !p.archived || p.id === a.accountId).map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
                     </option>
@@ -146,6 +162,56 @@ export function BankSettings({ overview, justConnected, authError }: { overview:
           </div>
         </Card>
       )}
+
+      <Card className="lg:col-span-2">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-[11px] font-bold uppercase tracking-wider text-n-700">Comptes Pecunia</h2>
+          <NewAccountButton />
+        </div>
+        <div className="divide-y divide-divider">
+          {overview.accounts.length === 0 && <p className="py-3 text-sm text-n-600">Aucun compte. Relie un compte bancaire ou crée un compte à saisie manuelle.</p>}
+          {overview.accounts.map((p) => {
+            const source = connection?.accounts.find((b) => b.accountId === p.id);
+            return (
+              <Row
+                key={p.id}
+                label={p.name}
+                hint={[source ? `Synchronisé avec ${source.name ?? "la banque"}` : "Saisie manuelle", formatCents(p.balanceCents), p.archived ? "archivé" : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+              >
+                <div className="flex items-center gap-2">
+                  <Link href={`/comptes/${p.id}`} className={linkButtonClass}>
+                    Ouvrir
+                  </Link>
+                  <Button variant="ghost" onClick={() => setConfirmDelete(p)} disabled={pending} aria-label={`Supprimer ${p.name}`} className="text-danger-700! hover:bg-danger-100!">
+                    <Trash2 size={15} />
+                  </Button>
+                </div>
+              </Row>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Modal
+        open={confirmDelete !== null}
+        onClose={() => setConfirmDelete(null)}
+        title="Supprimer ce compte ?"
+        footer={
+          <>
+            <Button onClick={() => setConfirmDelete(null)}>Annuler</Button>
+            <Button variant="danger" onClick={() => confirmDelete && remove(confirmDelete.id)} loading={pending}>
+              Supprimer
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm">
+          <strong>{confirmDelete?.name}</strong> sera supprimé avec toutes ses transactions, ses récurrences et ses objectifs. Cette action est irréversible.
+          {connection?.accounts.some((b) => b.accountId === confirmDelete?.id) && " Le compte bancaire relié ne sera plus synchronisé."}
+        </p>
+      </Modal>
 
       <Modal
         open={confirmDisconnect}
