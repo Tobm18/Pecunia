@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/overlay";
 import { Spinner } from "@/components/ui/spinner";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { APP_NAME, copyrightLine, versionLabel } from "@/lib/version";
+import { PushNotificationsRow } from "./push-notifications";
 
 export function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
@@ -158,6 +159,7 @@ export function SettingsForm({
               {passkeyCount ? "Gérer" : "Ajouter"} <ChevronRight size={15} aria-hidden />
             </Link>
           </Row>
+          <PushNotificationsRow />
           <div className="py-3">
             <form action={signOut}>
               <SubmitButton className="inline-flex min-h-10 items-center gap-2 font-semibold text-danger-700" pendingChildren="Déconnexion…">

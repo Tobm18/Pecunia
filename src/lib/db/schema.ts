@@ -271,6 +271,17 @@ export const bankAccounts = pgTable("bank_accounts", {
   bank_balance_cents: cents("bank_balance_cents"),
 });
 
+/** Abonnement aux notifications push d'un appareil (Web Push). */
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: uuid("user_id").notNull(),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  user_agent: text("user_agent"),
+  created_at: ts("created_at").notNull().defaultNow(),
+});
+
 export const forecastDecisions = pgTable("forecast_decisions", {
   id: uuid("id").primaryKey().defaultRandom(),
   user_id: uuid("user_id").notNull(),
