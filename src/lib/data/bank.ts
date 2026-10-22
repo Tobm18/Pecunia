@@ -1,7 +1,16 @@
 import "server-only";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, like, lt, lte, notLike, or, sql } from "drizzle-orm";
 import { db, schema as s } from "@/lib/db";
-import { BankApiError, bankName, createSession, deleteSession, getBalances, getTransactions, isBankConfigured } from "@/lib/bank/enable-banking";
+import {
+  BankApiError,
+  bankName,
+  createSession,
+  deleteSession,
+  getAccountDetails,
+  getBalances,
+  getTransactions,
+  isBankConfigured,
+} from "@/lib/bank/enable-banking";
 import {
   bankAccountLabel,
   findInternalAccount,
@@ -16,6 +25,7 @@ import {
   toBankLines,
   type BankBalance,
   type BankLine,
+  type BankTransaction,
 } from "@/lib/domain/bank-sync";
 import { createCategorizer, INTEREST_PATTERN, normalizeText } from "@/lib/domain/csv-import";
 import { todayIso } from "@/lib/domain/dates";
@@ -191,14 +201,21 @@ async function fetchLines(uid: string, syncedUntil: string | null) {
   // 1re synchro : la plus longue période que la banque fournit ; ensuite, quelques jours de recouvrement
   const from = syncedUntil ? shiftDays(syncedUntil, -OVERLAP_DAYS) : null;
   try {
-    return toBankLines(await getTransactions(uid, from));
+    return await getTransactions(uid, from);
   } catch (error) {
     // historique complet refusé par la banque : on se limite aux 90 derniers jours
     if (!syncedUntil && error instanceof BankApiError && (error.status === 400 || error.status === 422)) {
-      return toBankLines(await getTransactions(uid, shiftDays(today, -LIMITED_HISTORY_DAYS)));
+      return await getTransactions(uid, shiftDays(today, -LIMITED_HISTORY_DAYS));
     }
     throw error;
   }
+}
+
+/** Diagnostic : écritures brutes des virements et opérations en cours, et détails du compte. */
+async function rawSample(uid: string, booked: BankTransaction[], pending: BankTransaction[]) {
+  const isTransfer = (t: BankTransaction) => /\bVIR\b/i.test((t.remittance_information ?? []).join(" "));
+  const details = await getAccountDetails(uid).catch((error) => ({ error: String(error instanceof Error ? error.message : error) }));
+  return { capturedAt: new Date().toISOString(), details, transfers: booked.filter(isTransfer).slice(-25), pending: pending.slice(0, 15) };
 }
 
 async function syncAccount(userId: string, bank: typeof s.bankAccounts.$inferSelect, categorizer: ReturnType<typeof createCategorizer>): Promise<number> {
@@ -207,14 +224,14 @@ async function syncAccount(userId: string, bank: typeof s.bankAccounts.$inferSel
     .from(s.accounts)
     .where(and(eq(s.accounts.id, bank.account_id!), eq(s.accounts.user_id, userId)));
   if (!account) return 0;
-  const lines = await fetchLines(bank.uid, bank.synced_until);
+  const rawBooked = await fetchLines(bank.uid, bank.synced_until);
+  const lines = toBankLines(rawBooked);
   // opérations en cours (paiements par carte pas encore comptabilisés) : facultatives, toutes les banques ne les donnent pas
-  const pending = await getTransactions(bank.uid, shiftDays(todayIso(), -PENDING_DAYS), "PDNG")
-    .then((list) => toBankLines(list, { pending: true }))
-    .catch((error) => {
-      if (error instanceof BankApiError && (error.status === 401 || error.status === 403)) throw error;
-      return [];
-    });
+  const rawPending = await getTransactions(bank.uid, shiftDays(todayIso(), -PENDING_DAYS), "PDNG").catch((error) => {
+    if (error instanceof BankApiError && (error.status === 401 || error.status === 403)) throw error;
+    return [] as BankTransaction[];
+  });
+  const pending = toBankLines(rawPending, { pending: true });
 
   const t = s.transactions;
   const toRow = (l: BankLine, note: string | null = null) => {
@@ -294,7 +311,12 @@ async function syncAccount(userId: string, bank: typeof s.bankAccounts.$inferSel
   }
   await db
     .update(s.bankAccounts)
-    .set({ synced_until: todayIso(), bank_balance_cents: booked?.cents ?? null, bank_balances: readBalances(rawBalances) })
+    .set({
+      synced_until: todayIso(),
+      bank_balance_cents: booked?.cents ?? null,
+      bank_balances: readBalances(rawBalances),
+      raw_sample: await rawSample(bank.uid, rawBooked, rawPending),
+    })
     .where(eq(s.bankAccounts.id, bank.id));
   return inserted + pending.length;
 }

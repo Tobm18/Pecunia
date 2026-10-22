@@ -275,6 +275,8 @@ export const bankAccounts = pgTable("bank_accounts", {
   bank_balance_cents: cents("bank_balance_cents"),
   /** Soldes renvoyés par la banque à la dernière synchronisation */
   bank_balances: jsonb("bank_balances").$type<{ type: string; cents: number; date: string | null }[]>(),
+  /** Diagnostic : dernières écritures brutes (virements, opérations en cours) de la banque */
+  raw_sample: jsonb("raw_sample"),
 });
 
 /** Abonnement aux notifications push d'un appareil (Web Push). */

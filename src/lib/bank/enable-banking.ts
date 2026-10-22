@@ -119,6 +119,11 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await call(`/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
 }
 
+/** Détails du compte tels que la banque les décrit (diagnostic). */
+export function getAccountDetails(uid: string): Promise<unknown> {
+  return call<unknown>(`/accounts/${encodeURIComponent(uid)}/details`);
+}
+
 export async function getBalances(uid: string): Promise<BankBalance[]> {
   const { balances } = await call<{ balances: BankBalance[] }>(`/accounts/${encodeURIComponent(uid)}/balances`);
   return balances ?? [];
