@@ -3,10 +3,10 @@ import { getSessionCookie } from "better-auth/cookies";
 import { auth } from "@/lib/auth";
 
 /**
- * Pages accessibles sans session. /api/integrations : autres applications reliées, authentifiées
+ * Pages accessibles sans session (dont confidentialité et conditions, exigées par Enable Banking). /api/integrations : autres applications reliées, authentifiées
  * par clé d'API (vérifiée, avec ses permissions, dans chaque route), jamais par cookie.
  */
-const PUBLIC_PATHS = ["/login", "/inscription", "/api/auth", "/api/integrations"];
+const PUBLIC_PATHS = ["/login", "/inscription", "/confidentialite", "/conditions", "/api/auth", "/api/integrations"];
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
