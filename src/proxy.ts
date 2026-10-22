@@ -3,7 +3,7 @@ import { getSessionCookie } from "better-auth/cookies";
 import { auth } from "@/lib/auth";
 
 /** Pages accessibles sans session */
-const PUBLIC_PATHS = ["/login", "/inscription", "/mot-de-passe-oublie", "/auth", "/api/auth"];
+const PUBLIC_PATHS = ["/login", "/inscription", "/api/auth"];
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;

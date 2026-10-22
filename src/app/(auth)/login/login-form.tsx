@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
-import { KeyRound, Mail } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { Banner, Button, FieldError, Input, Label } from "@/components/ui/primitives";
+import { Button, FieldError, Input, Label } from "@/components/ui/primitives";
 
 const REQUIRED = "Ce champ est obligatoire";
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
-export function LoginForm({ allowSignup, passwordReset = false }: { allowSignup: boolean; passwordReset?: boolean }) {
+export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
   const router = useRouter();
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -18,8 +18,7 @@ export function LoginForm({ allowSignup, passwordReset = false }: { allowSignup:
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(passwordReset ? "Mot de passe modifié : connecte-toi avec le nouveau" : null);
-  const [pending, setPending] = useState<false | "password" | "magic">(false);
+  const [pending, setPending] = useState(false);
 
   function validateEmail(): boolean {
     if (!email.trim()) {
@@ -38,7 +37,6 @@ export function LoginForm({ allowSignup, passwordReset = false }: { allowSignup:
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    setInfo(null);
     setFieldErrors({});
     if (!validateEmail()) return;
     if (!password) {
@@ -46,7 +44,7 @@ export function LoginForm({ allowSignup, passwordReset = false }: { allowSignup:
       passwordRef.current?.focus();
       return;
     }
-    setPending("password");
+    setPending(true);
     try {
       const { error: authError } = await authClient.signIn.email({ email: email.trim(), password });
       if (authError) {
@@ -62,22 +60,6 @@ export function LoginForm({ allowSignup, passwordReset = false }: { allowSignup:
     } catch {
       setError("Connexion impossible, réessaie dans un instant");
       setPending(false);
-    }
-  }
-
-  async function sendMagicLink() {
-    setError(null);
-    setInfo(null);
-    setFieldErrors({});
-    if (!validateEmail()) return;
-    setPending("magic");
-    try {
-      await authClient.signIn.magicLink({ email: email.trim(), callbackURL: "/", errorCallbackURL: "/auth/lien-invalide" });
-    } catch {
-      // Message neutre dans tous les cas : ne jamais révéler si le compte existe.
-    } finally {
-      setPending(false);
-      setInfo("Si un compte existe pour cet email, un lien vient d'être envoyé");
     }
   }
 
@@ -109,27 +91,18 @@ export function LoginForm({ allowSignup, passwordReset = false }: { allowSignup:
         />
         <FieldError>{fieldErrors.password}</FieldError>
       </div>
-      <Link href="/mot-de-passe-oublie" className="self-start text-sm font-bold text-accent-700 hover:text-accent">
-        Mot de passe oublié ?
-      </Link>
-      <Button type="submit" variant="primary" loading={pending === "password"} disabled={!!pending} className="w-full">
-        {pending === "password" ? "Connexion…" : "Se connecter"}
+      <Button type="submit" variant="primary" loading={pending} disabled={pending} className="w-full">
+        {pending ? "Connexion…" : "Se connecter"}
       </Button>
       <FieldError>{error}</FieldError>
-      {info && <Banner tone="success">{info}</Banner>}
       <div className="flex items-center gap-3 text-xs text-n-600">
         <span className="h-px flex-1 bg-divider" />
         ou
         <span className="h-px flex-1 bg-divider" />
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Button onClick={sendMagicLink} loading={pending === "magic"} disabled={!!pending}>
-          {pending !== "magic" && <Mail size={16} />} Lien magique
-        </Button>
-        <Button disabled title="Bientôt disponible">
-          <KeyRound size={16} /> Passkey
-        </Button>
-      </div>
+      <Button disabled title="Bientôt disponible" className="w-full">
+        <KeyRound size={16} /> Passkey
+      </Button>
       {allowSignup && (
         <p className="text-center text-sm text-n-600">
           Pas encore de compte ?{" "}

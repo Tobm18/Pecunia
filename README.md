@@ -12,7 +12,7 @@ Références : cahier des charges, SFD (spécifications fonctionnelles détaill�
 | --- | --- |
 | Front | Next.js 16 (App Router, Server Components, Server Actions), React 19, Tailwind CSS 4 |
 | Base de données | PostgreSQL (Neon en production), requêtes via Drizzle ORM |
-| Authentification | Better Auth : email + mot de passe, lien magique, réinitialisation. Emails via Resend |
+| Authentification | Better Auth : email + mot de passe (aucun envoi d'email) |
 | Hébergement | Vercel |
 | Graphiques | Recharts + sparklines SVG |
 | Tests | Vitest : logique métier, et couche de données sur PostgreSQL en mémoire (PGlite) |
@@ -30,12 +30,10 @@ Base locale : n'importe quel PostgreSQL 15+, par exemple
 `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=pecunia postgres:17-alpine`
 puis `DATABASE_URL=postgres://postgres:pecunia@localhost:5432/postgres`.
 
-Sans `RESEND_API_KEY`, les emails (lien magique, réinitialisation) ne sont pas envoyés : leur contenu, lien compris, est écrit dans la console du serveur.
-
 ### Mise en production (Vercel + Neon)
 
 1. Projet Vercel relié au dépôt, base Neon ajoutée depuis l'onglet **Storage** (offre gratuite, région `fra1`) : `DATABASE_URL` et `DATABASE_URL_UNPOOLED` sont créées automatiquement.
-2. Variables à ajouter : `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), `BETTER_AUTH_URL` (URL de production), `NEXT_PUBLIC_ALLOW_SIGNUP`, et pour les emails `RESEND_API_KEY` et `MAIL_FROM`.
+2. Variables à ajouter : `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), `BETTER_AUTH_URL` (URL de production) et `NEXT_PUBLIC_ALLOW_SIGNUP`.
 3. Migrations : `vercel env pull .env.production.local`, puis `node --env-file=.env.production.local scripts/migrate.mjs`.
 4. Créer son compte sur `/inscription`, puis passer `NEXT_PUBLIC_ALLOW_SIGNUP=false` et redéployer. À la première connexion, l'application crée le profil, les catégories par défaut et un compte courant.
 
@@ -56,11 +54,11 @@ db/migrations/           Schéma SQL (PostgreSQL standard), appliqué par script
 src/lib/domain/          Logique métier pure et testée : montants, dates, KPI, budgets,
                          mémoire des lieux, construction des saisies, CSV
 src/lib/db/              Connexion et schéma Drizzle (miroir du SQL)
-src/lib/auth.ts          Better Auth (sessions en base, cookies, emails)
+src/lib/auth.ts          Better Auth (sessions en base, cookies)
 src/lib/data/            Accès aux données : lectures (queries.ts) et mutations validées
                          par zod (actions.ts…), toujours filtrées sur l'utilisateur connecté
 src/components/          UI : primitives, navigation, saisie, transactions, comptes, graphiques
-src/app/(auth)/          Connexion, lien magique, mot de passe oublié, inscription
+src/app/(auth)/          Connexion, inscription
 src/app/(app)/           Écrans : accueil, saisie, transactions, comptes, budgets, catégories, paramètres
 src/proxy.ts             Redirection vers /login sans cookie de session
 ```
@@ -84,7 +82,7 @@ src/proxy.ts             Redirection vers /login sans cookie de session
 
 ### MVP (v1) - livré
 
-- [x] Authentification : email + mot de passe, lien magique, mot de passe oublié / réinitialisation, messages neutres
+- [x] Authentification : email + mot de passe, messages neutres. Pas d'envoi d'email : ni lien magique ni réinitialisation du mot de passe
 - [x] Comptes : création, liste, soldes, sparklines, détail, ajustement de solde (régularisation), « dans le budget », modification, archivage / restauration
 - [x] Saisie rapide : sortie / entrée / virement, mémoire des lieux, suggestions, nature intérêts / revenu, date et compte conservés, alerte de budget à 80 % / 100 %. Feuille mobile et page web
 - [x] Transactions : filtres (recherche, mois, compte, type, catégorie), regroupement par jour, modification, suppression avec confirmation
@@ -118,7 +116,7 @@ Conseil : importer d'abord le compte courant (les virements vers l'épargne cré
 - [x] **Objectifs d'épargne** (écran Comptes et détail du compte) : progression, statut « En avance » / « En retard » selon les virements récurrents programmés, manque à l'échéance
 - [x] **Analyses** (`/analyses`) : taux d'épargne, patrimoine sur 12 mois, épargne cumulée par compte (virements / intérêts), comparaison avec le mois précédent, évolution d'une catégorie, classement des lieux
 - [x] Tableau de bord : bloc **« À venir »** (5 prochaines échéances et dépenses prévues)
-- [x] **Suppression du compte utilisateur** (Paramètres), confirmée par l'email ou « SUPPRIMER » ; nécessite la migration `20260930000000_delete_account.sql`
+- [x] **Suppression du compte utilisateur** (Paramètres), confirmée par l'email ou « SUPPRIMER »
 
 ### Interface et mouvement
 
