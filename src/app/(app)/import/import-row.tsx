@@ -9,7 +9,7 @@ import { sanitizeAmountInput } from "@/lib/domain/money";
 import type { ExistingLine } from "@/lib/domain/csv-import";
 import type { Account, Category } from "@/lib/domain/types";
 
-const cell = "h-9 w-full rounded-lg border border-transparent bg-transparent px-2 text-sm hover:border-n-300 focus:border-accent focus:bg-surface focus:outline-none";
+const cell = "h-9 w-full rounded-lg border border-transparent bg-transparent px-2 text-base hover:border-n-300 focus:border-accent focus:bg-surface focus:outline-none md:text-sm";
 
 export interface RowActions {
   update: (key: string, patch: Partial<DraftRow>) => void;

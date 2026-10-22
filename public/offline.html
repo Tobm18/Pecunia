@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f6f8" />
+    <title>Pas de connexion · Pecunia</title>
+    <style>
+      :root {
+        --bg: #f5f6f8;
+        --text: #1d2433;
+        --muted: #5b6575;
+        --accent: #148270;
+        --on-accent: #ffffff;
+      }
+      [data-theme="dark"] {
+        --bg: #11151c;
+        --text: #e8ebf0;
+        --muted: #aab2c0;
+        --accent: #2fa892;
+        --on-accent: #0b1f1b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, sans-serif;
+        -webkit-tap-highlight-color: transparent;
+      }
+      main {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 24px;
+        text-align: center;
+      }
+      h1 {
+        margin: 12px 0 0;
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: -0.016em;
+      }
+      p {
+        margin: 0;
+        max-width: 280px;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.4;
+      }
+      button {
+        margin-top: 12px;
+        min-height: 44px;
+        padding: 0 20px;
+        border: 0;
+        border-radius: 12px;
+        background: var(--accent);
+        color: var(--on-accent);
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:active {
+        opacity: 0.8;
+      }
+    </style>
+    <script>
+      // même thème que l'app (cookie), sinon celui de l'appareil
+      const m = document.cookie.match(/(?:^|; )pecunia-theme=(\w+)/);
+      const dark = m ? m[1] === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      if (dark) {
+        document.documentElement.dataset.theme = "dark";
+        document.querySelector('meta[name="theme-color"]').content = "#11151c";
+      }
+      addEventListener("online", () => location.reload());
+    </script>
+  </head>
+  <body>
+    <main>
+      <!-- logo intégré : hors connexion, aucune autre requête ne passe -->
+      <svg viewBox="0 0 512 512" width="72" height="72" aria-hidden="true">
+        <rect width="512" height="512" rx="116" fill="#148270" />
+        <g fill="none" stroke-width="56">
+          <circle cx="256" cy="234" r="86" stroke="#fff" />
+          <path d="M340.69 219.07A86 86 0 0 1 241.07 318.69" stroke="#8fd8c9" />
+          <path d="M170 148v224" stroke="#fff" stroke-linecap="round" />
+        </g>
+        <g fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round">
+          <path d="M284.93 257.75A31 31 0 1 1 284.93 210.25" />
+          <path d="M225 225h36M225 243h36" />
+        </g>
+      </svg>
+      <h1>Pas de connexion</h1>
+      <p>Pecunia a besoin d'internet pour afficher tes comptes à jour. La page se recharge dès que le réseau revient.</p>
+      <button type="button" onclick="location.reload()">Réessayer</button>
+    </main>
+  </body>
+</html>

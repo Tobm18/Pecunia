@@ -136,6 +136,26 @@ html {
   /* retour visuel géré par l'app (états :active) ; pas de délai de 300 ms au toucher */
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  /* pas d'agrandissement automatique du texte en paysage (iOS) */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Comme une app : un appui long sur un bouton ou un lien ne sélectionne pas son texte et n'ouvre pas
+   le menu du navigateur (« Ouvrir dans un nouvel onglet »…). Le contenu reste sélectionnable. */
+a,
+button,
+nav,
+[role="tab"],
+img,
+svg {
+  -webkit-touch-callout: none;
+}
+button,
+nav,
+[role="tab"] {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 body {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
 import { useState } from "react";
+import { Logo } from "@/components/ui/logo";
 import {
   ChartColumn,
   CreditCard,
@@ -77,7 +78,7 @@ export function Sidebar() {
   return (
     <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-divider bg-surface px-3 py-5 lg:flex">
       <Link href="/" className="mb-6 flex items-center gap-2 px-2.5 text-lg font-extrabold">
-        <span className="flex size-6 items-center justify-center rounded-md bg-accent text-xs text-on-accent">P</span>
+        <Logo className="size-7" />
         Pecunia
       </Link>
       <nav className="flex flex-col gap-0.5" aria-label="Navigation principale">

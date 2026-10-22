@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
 import { signOut, updateProfile } from "@/lib/data/actions";
 import { deleteMyAccount } from "@/lib/data/planning-actions";
+import { applyThemeColor } from "@/lib/theme";
 import type { Profile } from "@/lib/domain/types";
 import { Button, Card, FieldError, Input, Label, Segmented, Select } from "@/components/ui/primitives";
 import { Modal } from "@/components/ui/overlay";
@@ -49,6 +50,7 @@ export function SettingsForm({ profile, gkoiStatus }: { profile: Profile; gkoiSt
   function changeTheme(theme: Profile["theme"]) {
     const apply = () => {
       document.documentElement.dataset.theme = theme;
+      applyThemeColor(theme);
     };
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if ("startViewTransition" in document && !reduce) document.startViewTransition(apply);

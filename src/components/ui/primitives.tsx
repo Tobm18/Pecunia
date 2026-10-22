@@ -71,7 +71,7 @@ export function Label({ children, htmlFor }: { children: ReactNode; htmlFor?: st
 }
 
 export const inputClass =
-  "block w-full min-h-11 rounded-[10px] border border-n-300 bg-surface px-3 text-[15px] text-text placeholder:text-n-500 focus:border-accent focus:outline-none md:min-h-9 md:text-sm aria-[invalid=true]:border-danger";
+  "block w-full min-h-11 rounded-[10px] border border-n-300 bg-surface px-3 text-base text-text placeholder:text-n-500 focus:border-accent focus:outline-none md:min-h-9 md:text-sm aria-[invalid=true]:border-danger";
 
 export function Input({ className, ...props }: ComponentProps<"input">) {
   return <input className={clsx(inputClass, className)} {...props} />;

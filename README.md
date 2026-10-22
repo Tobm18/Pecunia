@@ -139,6 +139,15 @@ Principes d'interface « fluide » à la manière d'Apple (`src/lib/motion/sprin
 - **Retour immédiat** à l'appui sur les boutons, puces et lignes ; barre du bas en matériau translucide ; typographie resserrée sur les grands textes.
 - Préférences système respectées : réduire les animations (fondus), réduire la transparence, contraste élevé.
 
+### Application iPhone (PWA)
+
+Dans Safari : Partager → « Sur l'écran d'accueil ». Pecunia s'ouvre alors en plein écran, sans l'interface du navigateur. La session est distincte de celle de Safari, il faut donc se reconnecter une fois.
+
+- Manifeste `src/app/manifest.ts` (mode `standalone`, raccourci « Nouvelle saisie »), balises iOS dans `src/app/layout.tsx`. La barre d'état prend la couleur du thème choisi.
+- Logo : un P dont la boucle est un anneau de budget, avec un € au centre (`src/app/icon.svg`, composant `src/components/ui/logo.tsx`). Icônes : `src/app/apple-icon.png`, `src/app/favicon.ico`, `public/icon-*.png` (dont une version adaptative Android).
+- Service worker `public/sw.js`, en production seulement : écran « Pas de connexion » (`public/offline.html`) au lieu de l'erreur du navigateur, et fichiers statiques en cache. Aucune page ni donnée n'est mise en cache.
+- Comme une app : champs en 16 px sur mobile (pas de zoom au toucher), pas de menu d'appui long sur les boutons et les liens, un lien de retour sur chaque sous-page.
+
 ### Restant
 
-- [ ] Passkey (WebAuthn), mode hors connexion
+- [ ] Passkey (WebAuthn), consultation hors connexion (aujourd'hui : écran « Pas de connexion »)

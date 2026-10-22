@@ -53,7 +53,7 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Rechercher un lieu, une note"
-              className="block min-h-11 w-full rounded-[10px] border border-n-300 bg-surface pr-3 pl-9 text-[15px] placeholder:text-n-500 focus:border-accent focus:outline-none md:min-h-9 md:text-sm"
+              className="block min-h-11 w-full rounded-[10px] border border-n-300 bg-surface pr-3 pl-9 text-base placeholder:text-n-500 focus:border-accent focus:outline-none md:min-h-9 md:text-sm"
             />
           </label>
           <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} aria-label="Catégorie" className="hidden md:block">
