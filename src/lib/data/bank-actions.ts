@@ -3,11 +3,23 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { BankApiError, startAuthorization } from "@/lib/bank/enable-banking";
-import { createPendingConnection, disconnectAll, linkBankAccount as link, syncConnection } from "./bank";
-import { getBankOverview } from "./bank";
+import { isValidIsoDate, todayIso } from "@/lib/domain/dates";
+import { parseAmountToCents } from "@/lib/domain/money";
+import {
+  addInterest as insertInterest,
+  createPendingConnection,
+  disconnectAll,
+  getBankOverview,
+  linkBankAccount as link,
+  saveInternalAccount as saveInternal,
+  syncConnection,
+} from "./bank";
 import { getSession } from "./queries";
 
-/** Actions de l'écran « Banque » (Paramètres) : connexion, liaison des comptes, synchronisation. */
+/**
+ * Actions de l'écran « Banque » (Paramètres) : connexion, liaison des comptes, synchronisation,
+ * comptes internes suivis par les virements, intérêts d'épargne.
+ */
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -50,6 +62,47 @@ export async function syncBank(): Promise<ActionResult<{ inserted: number; accou
   const result = await syncConnection(user.id, overview.connection.id);
   refresh();
   return result.ok ? ok(result.summary) : fail(result.error);
+}
+
+const internalInput = z.object({
+  accountId: z.string().uuid(),
+  identifier: z.string().trim().max(40),
+  balance: z.string().trim().max(20),
+  balanceDate: z.string().refine((d) => d === "" || isValidIsoDate(d), "Date invalide."),
+});
+
+/**
+ * Compte interne (livret…) : identifiant reconnu dans les virements du compte synchronisé et solde
+ * réel connu à une date. Les virements déjà importés sont aussitôt reconnus.
+ */
+export async function saveInternalAccount(input: z.input<typeof internalInput>): Promise<ActionResult<{ converted: number }>> {
+  const parsed = internalInput.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Valeurs invalides.");
+  const { accountId, identifier, balance, balanceDate } = parsed.data;
+  const balanceCents = balance ? parseAmountToCents(balance) : null;
+  if (balance && balanceCents === null) return fail("Solde invalide.");
+  if (balanceCents !== null && !balanceDate) return fail("Indique la date de ce solde.");
+  if (balanceDate && balanceDate > todayIso()) return fail("La date ne peut pas être dans le futur.");
+  const { user } = await getSession();
+  const result = await saveInternal(user.id, { accountId, identifier: identifier || null, balanceCents, balanceDate: balanceCents !== null ? balanceDate : null });
+  if (!result.ok) return fail(result.error);
+  refresh();
+  return ok({ converted: result.converted });
+}
+
+const interestInput = z.object({ accountId: z.string().uuid(), amount: z.string().trim().min(1), date: z.string().refine(isValidIsoDate, "Date invalide.") });
+
+/** Intérêts annuels d'un compte épargne, saisis à la main (versés sans passer par le compte courant). */
+export async function addInterest(input: z.input<typeof interestInput>): Promise<ActionResult> {
+  const parsed = interestInput.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Valeurs invalides.");
+  const cents = parseAmountToCents(parsed.data.amount);
+  if (cents === null || cents <= 0) return fail("Montant invalide.");
+  const { user } = await getSession();
+  const result = await insertInterest(user.id, parsed.data.accountId, cents, parsed.data.date);
+  if (!result.ok) return fail(result.error);
+  refresh();
+  return ok(undefined);
 }
 
 /** Retire la connexion (et le consentement chez Enable Banking) ; les transactions importées restent. */

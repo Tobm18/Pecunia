@@ -1,8 +1,17 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import { db, schema as s } from "@/lib/db";
 import { BankApiError, bankName, createSession, deleteSession, getBalances, getTransactions, isBankConfigured } from "@/lib/bank/enable-banking";
-import { bankAccountLabel, guessAccountType, initialBalanceFor, pickBalanceCents, toBankLines } from "@/lib/domain/bank-sync";
+import {
+  bankAccountLabel,
+  findInternalAccount,
+  guessAccountType,
+  initialBalanceFor,
+  MIN_IDENTIFIER_LENGTH,
+  normalizeIdentifier,
+  pickBalanceCents,
+  toBankLines,
+} from "@/lib/domain/bank-sync";
 import { createCategorizer, INTEREST_PATTERN, normalizeText } from "@/lib/domain/csv-import";
 import { todayIso } from "@/lib/domain/dates";
 import { toCategory, toPlaceMemory } from "./mappers";
@@ -204,12 +213,22 @@ async function syncAccount(userId: string, bank: typeof s.bankAccounts.$inferSel
       place: l.label,
       category_id: type === "interest" ? null : categorizer.categoryFor(l.label, l.cents < 0 ? "out" : "in"),
       bank_ref: l.ref,
+      bank_counterparty: l.counterparty,
     };
   });
   let inserted = 0;
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const done = await db.insert(t).values(rows.slice(i, i + CHUNK)).onConflictDoNothing().returning({ id: t.id });
-    inserted += done.length;
+    // ligne déjà importée : seul son compte en face est complété (catégorie et corrections gardées)
+    const done = await db
+      .insert(t)
+      .values(rows.slice(i, i + CHUNK))
+      .onConflictDoUpdate({
+        target: [t.user_id, t.account_id, t.bank_ref],
+        targetWhere: sql`${t.bank_ref} is not null`,
+        set: { bank_counterparty: sql`excluded.bank_counterparty` },
+      })
+      .returning({ inserted: sql<boolean>`(xmax = 0)` });
+    inserted += done.filter((r) => r.inserted).length;
   }
 
   // Le solde de Pecunia suit celui de la banque : le solde initial absorbe l'historique non récupéré.
@@ -272,7 +291,140 @@ export async function syncConnection(userId: string, connectionId: string): Prom
     return { ok: false, error: message };
   }
   await db.update(c).set({ last_sync_at: new Date(), last_error: null, status: "active" }).where(eq(c.id, conn.id));
+  await refreshInternalAccounts(userId);
   return { ok: true, summary: { inserted, accounts: linked.length } };
+}
+
+// ---------------------------------------------------------------------------
+// Comptes internes (livrets…) suivis par les virements
+// ---------------------------------------------------------------------------
+
+/** Comptes internes : un identifiant renseigné, et pas alimentés eux-mêmes par la banque. */
+async function internalAccounts(userId: string) {
+  const [accounts, synced] = await Promise.all([
+    db
+      .select({ id: s.accounts.id, identifier: s.accounts.bank_identifier })
+      .from(s.accounts)
+      .where(and(eq(s.accounts.user_id, userId), isNotNull(s.accounts.bank_identifier))),
+    db
+      .select({ id: s.bankAccounts.account_id })
+      .from(s.bankAccounts)
+      .where(and(eq(s.bankAccounts.user_id, userId), isNotNull(s.bankAccounts.account_id))),
+  ]);
+  const syncedIds = new Set(synced.map((x) => x.id));
+  return accounts.filter((a) => !syncedIds.has(a.id));
+}
+
+/**
+ * Lignes bancaires dont le compte en face est un compte interne → virements entre les deux
+ * comptes Pecunia : la ligne du compte synchronisé devient la moitié « transfer » et l'autre
+ * moitié est créée sur le compte interne. Une ligne déjà convertie n'est jamais retouchée.
+ */
+async function applyInternalTransfers(userId: string): Promise<number> {
+  const internal = await internalAccounts(userId);
+  if (!internal.length) return 0;
+  const t = s.transactions;
+  const candidates = await db
+    .select()
+    .from(t)
+    .where(and(eq(t.user_id, userId), isNotNull(t.bank_counterparty), isNull(t.transfer_id), inArray(t.type, ["in", "out"])));
+  let converted = 0;
+  for (const row of candidates) {
+    const target = findInternalAccount(row.bank_counterparty, internal);
+    if (!target || target.id === row.account_id) continue;
+    const transferId = crypto.randomUUID();
+    await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(t)
+        .set({ type: "transfer", transfer_id: transferId, counterpart_account_id: target.id, category_id: null })
+        .where(and(eq(t.id, row.id), eq(t.user_id, userId), isNull(t.transfer_id)))
+        .returning({ id: t.id });
+      if (!updated.length) return;
+      await tx.insert(t).values({
+        user_id: userId,
+        account_id: target.id,
+        type: "transfer",
+        amount_cents: -Number(row.amount_cents),
+        date: row.date,
+        place: row.place,
+        note: row.note,
+        counterpart_account_id: row.account_id,
+        transfer_id: transferId,
+      });
+      converted++;
+    });
+  }
+  return converted;
+}
+
+/**
+ * Solde initial des comptes à solde de référence (comptes internes) : le solde réel saisi à une
+ * date, moins les lignes jusqu'à cette date. Les lignes ajoutées ensuite (historique complété,
+ * virements reconnus) ne faussent donc jamais le solde.
+ */
+async function recomputeReferenceBalances(userId: string): Promise<void> {
+  const t = s.transactions;
+  const accounts = await db
+    .select()
+    .from(s.accounts)
+    .where(and(eq(s.accounts.user_id, userId), isNotNull(s.accounts.reference_balance_cents), isNotNull(s.accounts.reference_balance_date)));
+  for (const a of accounts) {
+    const [sum] = await db
+      .select({ total: sql<string>`coalesce(sum(${t.amount_cents}), 0)`, first: sql<string | null>`min(${t.date})` })
+      .from(t)
+      .where(and(eq(t.account_id, a.id), eq(t.user_id, userId), lte(t.date, a.reference_balance_date!)));
+    const first = sum?.first ?? null;
+    await db
+      .update(s.accounts)
+      .set({
+        initial_balance_cents: initialBalanceFor(Number(a.reference_balance_cents), Number(sum?.total ?? 0)),
+        initial_balance_date: first && first < a.reference_balance_date! ? first : a.reference_balance_date!,
+      })
+      .where(eq(s.accounts.id, a.id));
+  }
+}
+
+/** Virements reconnus puis soldes de référence : après une synchronisation ou un réglage. */
+export async function refreshInternalAccounts(userId: string): Promise<{ converted: number }> {
+  const converted = await applyInternalTransfers(userId);
+  await recomputeReferenceBalances(userId);
+  return { converted };
+}
+
+/** Réglages d'un compte interne : identifiant reconnu dans les virements, solde réel connu. */
+export async function saveInternalAccount(
+  userId: string,
+  input: { accountId: string; identifier: string | null; balanceCents: number | null; balanceDate: string | null },
+): Promise<{ ok: true; converted: number } | { ok: false; error: string }> {
+  const identifier = normalizeIdentifier(input.identifier);
+  if (identifier && identifier.length < MIN_IDENTIFIER_LENGTH) return { ok: false, error: `L'identifiant doit faire au moins ${MIN_IDENTIFIER_LENGTH} caractères.` };
+  const [account] = await db
+    .select({ id: s.accounts.id })
+    .from(s.accounts)
+    .where(and(eq(s.accounts.id, input.accountId), eq(s.accounts.user_id, userId)));
+  if (!account) return { ok: false, error: "Ce compte n'existe plus. Recharge la page." };
+  const withBalance = input.balanceCents !== null && input.balanceDate !== null;
+  await db
+    .update(s.accounts)
+    .set({
+      bank_identifier: identifier,
+      reference_balance_cents: withBalance ? input.balanceCents : null,
+      reference_balance_date: withBalance ? input.balanceDate : null,
+    })
+    .where(eq(s.accounts.id, account.id));
+  const { converted } = await refreshInternalAccounts(userId);
+  return { ok: true, converted };
+}
+
+/** Ligne d'intérêts d'épargne (versés directement sur le compte, invisibles pour la synchronisation). */
+export async function addInterest(userId: string, accountId: string, cents: number, date: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const [account] = await db
+    .select({ id: s.accounts.id })
+    .from(s.accounts)
+    .where(and(eq(s.accounts.id, accountId), eq(s.accounts.user_id, userId)));
+  if (!account) return { ok: false, error: "Ce compte n'existe plus. Recharge la page." };
+  await db.insert(s.transactions).values({ user_id: userId, account_id: account.id, type: "interest", amount_cents: cents, date, place: "Intérêts" });
+  return { ok: true };
 }
 
 /** Synchronisation quotidienne : toutes les connexions actives, un utilisateur après l'autre. */
@@ -309,8 +461,19 @@ export interface BankOverview {
     lastError: string | null;
     accounts: { id: string; name: string | null; iban: string | null; accountId: string | null; bankBalanceCents: number | null }[];
   } | null;
-  /** Comptes Pecunia (y compris archivés), avec leur solde */
-  accounts: { id: string; name: string; type: "current" | "savings" | "cash"; archived: boolean; balanceCents: number }[];
+  /** Comptes Pecunia (y compris archivés), avec leur solde et leurs réglages de compte interne */
+  accounts: {
+    id: string;
+    name: string;
+    type: "current" | "savings" | "cash";
+    archived: boolean;
+    balanceCents: number;
+    identifier: string | null;
+    referenceBalanceCents: number | null;
+    referenceBalanceDate: string | null;
+  }[];
+  /** Comptes vus en face de lignes bancaires pas encore reconnues : aide à renseigner un identifiant */
+  counterparties: { identifier: string; count: number; lastLabel: string | null; lastDate: string }[];
 }
 
 export async function getBankOverview(userId: string): Promise<BankOverview> {
@@ -321,15 +484,38 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
     .where(and(eq(c.user_id, userId), inArray(c.status, ["active", "expired", "error"])))
     .orderBy(desc(c.created_at))
     .limit(1);
-  const [accounts, bankAccounts] = await Promise.all([
+  const t = s.transactions;
+  const [accounts, bankAccounts, counterparties] = await Promise.all([
     db
-      .select({ id: s.accounts.id, name: s.accounts.name, type: s.accounts.type, archived_at: s.accounts.archived_at, balance: s.accountBalances.balance_cents })
+      .select({
+        id: s.accounts.id,
+        name: s.accounts.name,
+        type: s.accounts.type,
+        archived_at: s.accounts.archived_at,
+        bank_identifier: s.accounts.bank_identifier,
+        reference_balance_cents: s.accounts.reference_balance_cents,
+        reference_balance_date: s.accounts.reference_balance_date,
+        balance: s.accountBalances.balance_cents,
+      })
       .from(s.accounts)
       .leftJoin(s.accountBalances, eq(s.accountBalances.account_id, s.accounts.id))
       .where(eq(s.accounts.user_id, userId))
       .orderBy(asc(s.accounts.sort_order), asc(s.accounts.created_at)),
     conn ? db.select().from(s.bankAccounts).where(eq(s.bankAccounts.connection_id, conn.id)).orderBy(asc(s.bankAccounts.name)) : Promise.resolve([]),
+    db
+      .select({
+        identifier: t.bank_counterparty,
+        count: sql<number>`count(*)::int`,
+        lastDate: sql<string>`max(${t.date})`,
+        lastLabel: sql<string | null>`(array_agg(${t.place} order by ${t.date} desc))[1]`,
+      })
+      .from(t)
+      .where(and(eq(t.user_id, userId), isNotNull(t.bank_counterparty), isNull(t.transfer_id)))
+      .groupBy(t.bank_counterparty)
+      .orderBy(desc(sql`count(*)`))
+      .limit(12),
   ]);
+  const ownIbans = new Set(bankAccounts.map((b) => normalizeIdentifier(b.iban)).filter(Boolean));
   return {
     configured: isBankConfigured(),
     bankName: bankName(),
@@ -349,6 +535,18 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
           })),
         }
       : null,
-    accounts: accounts.map((a) => ({ id: a.id, name: a.name, type: a.type, archived: !!a.archived_at, balanceCents: Number(a.balance ?? 0) })),
+    accounts: accounts.map((a) => ({
+      id: a.id,
+      name: a.name,
+      type: a.type,
+      archived: !!a.archived_at,
+      balanceCents: Number(a.balance ?? 0),
+      identifier: a.bank_identifier,
+      referenceBalanceCents: a.reference_balance_cents === null ? null : Number(a.reference_balance_cents),
+      referenceBalanceDate: a.reference_balance_date,
+    })),
+    counterparties: counterparties
+      .filter((x): x is typeof x & { identifier: string } => !!x.identifier && !ownIbans.has(x.identifier))
+      .map((x) => ({ identifier: x.identifier, count: Number(x.count), lastLabel: x.lastLabel, lastDate: x.lastDate })),
   };
 }

@@ -143,6 +143,11 @@ export const accounts = pgTable("accounts", {
   in_budget: boolean("in_budget").notNull().default(true),
   sort_order: integer("sort_order").notNull().default(0),
   archived_at: ts("archived_at"),
+  /** Compte interne : IBAN ou numéro reconnu dans les virements du compte synchronisé */
+  bank_identifier: text("bank_identifier"),
+  /** Solde réel connu à une date ; le solde initial en est déduit */
+  reference_balance_cents: cents("reference_balance_cents"),
+  reference_balance_date: day("reference_balance_date"),
   created_at: ts("created_at").notNull().defaultNow(),
 });
 
@@ -184,6 +189,8 @@ export const transactions = pgTable("transactions", {
   recurrence_id: uuid("recurrence_id"),
   /** Référence de la ligne chez la banque (connexion bancaire) : évite les doublons à la resynchronisation */
   bank_ref: text("bank_ref"),
+  /** Compte en face (IBAN ou numéro) : compte créditeur d'un débit, donneur d'ordre d'un crédit */
+  bank_counterparty: text("bank_counterparty"),
   created_at: ts("created_at").notNull().defaultNow(),
 });
 

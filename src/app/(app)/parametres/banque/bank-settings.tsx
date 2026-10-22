@@ -11,6 +11,7 @@ import { NewAccountButton } from "@/components/accounts/account-dialogs";
 import { Banner, Button, Card, Select } from "@/components/ui/primitives";
 import { Modal, useToast } from "@/components/ui/overlay";
 import { linkButtonClass, Row } from "../settings-form";
+import { InternalAccounts } from "./internal-accounts";
 
 const NONE = "";
 const NEW = "new";
@@ -193,6 +194,8 @@ export function BankSettings({ overview, justConnected, authError }: { overview:
           })}
         </div>
       </Card>
+
+      <InternalAccounts overview={overview} />
 
       <Modal
         open={confirmDelete !== null}

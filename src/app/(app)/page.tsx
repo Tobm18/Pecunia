@@ -18,6 +18,7 @@ import {
   topPlaces,
 } from "@/lib/domain/stats";
 import { ACCOUNT_TYPE_LABELS } from "@/lib/domain/defaults";
+import { interestReminder } from "@/lib/domain/bank-sync";
 import { AccountChips, MonthSwitcher } from "@/components/app/filters";
 import { DonutChart, MonthlyBars } from "@/components/charts/charts";
 import { Sparkline } from "@/components/charts/sparkline";
@@ -131,6 +132,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
     .slice(0, 5);
 
+  // du 31 décembre au 31 janvier : rappel des intérêts d'épargne de l'année écoulée
+  const interest = interestReminder(
+    today,
+    activeAccounts.filter((a) => a.type === "savings"),
+    txs.filter((t) => t.type === "interest").map((t) => ({ accountId: t.accountId, date: t.date })),
+  );
+
   const overs = budgets.alerts.filter((l) => l.status === "over").map((l) => l.category.name);
   const warns = budgets.alerts.filter((l) => l.status === "warn");
 
@@ -148,6 +156,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
         </div>
       </div>
+
+      {interest && (
+        <Banner tone="info" action={<Link href="/parametres/banque#interets" className="font-bold">Saisir</Link>}>
+          <span className="inline-flex items-center gap-2">
+            <PiggyBank size={15} />
+            N&apos;oublie pas de saisir les intérêts {interest.year} de tes comptes épargne : {formatList(interest.accounts.map((a) => a.name))}.
+          </span>
+        </Banner>
+      )}
 
       {budgets.alerts.length > 0 && (
         <div className="hidden md:block">

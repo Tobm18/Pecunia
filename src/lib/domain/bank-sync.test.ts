@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { bankAccountLabel, guessAccountType, initialBalanceFor, pickBalanceCents, toBankLines, type BankTransaction } from "./bank-sync";
+import {
+  bankAccountLabel,
+  counterpartyOf,
+  findInternalAccount,
+  guessAccountType,
+  initialBalanceFor,
+  interestReminder,
+  matchesIdentifier,
+  pickBalanceCents,
+  toBankLines,
+  type BankTransaction,
+} from "./bank-sync";
 
 const tx = (over: Partial<BankTransaction> = {}): BankTransaction => ({
   entry_reference: "ref-1",
@@ -59,6 +70,51 @@ describe("pickBalanceCents", () => {
 describe("initialBalanceFor", () => {
   it("fait coïncider solde Pecunia et solde bancaire", () => {
     expect(initialBalanceFor(100_000, -25_000)).toBe(125_000);
+  });
+});
+
+describe("compte en face", () => {
+  it("compte créditeur d'un débit, donneur d'ordre d'un crédit", () => {
+    const out = tx({ creditor_account: { iban: "FR76 1070 7000 0012 3456 7890 123" }, debtor_account: { iban: "FR00MOI" } });
+    const inc = tx({ credit_debit_indicator: "CRDT", creditor_account: { iban: "FR00MOI" }, debtor_account: { other: { identification: "12345678901" } } });
+    expect(counterpartyOf(out)).toBe("FR7610707000001234567890123");
+    expect(counterpartyOf(inc)).toBe("12345678901");
+    expect(toBankLines([out])[0]!.counterparty).toBe("FR7610707000001234567890123");
+    expect(counterpartyOf(tx())).toBeNull();
+  });
+
+  it("reconnaît le compte interne par IBAN ou par numéro de compte", () => {
+    const iban = "FR7610707000001234567890123";
+    expect(matchesIdentifier(iban, "fr76 1070 7000 0012 3456 7890 123")).toBe(true);
+    expect(matchesIdentifier(iban, "12345678901")).toBe(true);
+    expect(matchesIdentifier("12345678901", iban)).toBe(true);
+    expect(matchesIdentifier(iban, "123")).toBe(false);
+    expect(matchesIdentifier(null, iban)).toBe(false);
+    expect(matchesIdentifier(iban, "99999999999")).toBe(false);
+  });
+
+  it("choisit l'identifiant le plus précis", () => {
+    const accounts = [
+      { id: "court", identifier: "10707" },
+      { id: "long", identifier: "12345678901" },
+    ];
+    expect(findInternalAccount("FR7610707000001234567890123", accounts)?.id).toBe("long");
+    expect(findInternalAccount("FR76000", accounts)).toBeNull();
+  });
+});
+
+describe("interestReminder", () => {
+  const livrets = [{ id: "a" }, { id: "b" }];
+  it("hors période : rien", () => expect(interestReminder("2026-12-30", livrets, [])).toBeNull());
+  it("le 31 décembre : tous les livrets de l'année", () => {
+    expect(interestReminder("2026-12-31", livrets, [])).toEqual({ year: 2026, accounts: livrets });
+  });
+  it("en janvier : l'année précédente, sans les livrets déjà complétés", () => {
+    const r = interestReminder("2027-01-10", livrets, [{ accountId: "a", date: "2026-12-31" }]);
+    expect(r).toEqual({ year: 2026, accounts: [{ id: "b" }] });
+  });
+  it("plus de rappel une fois tout saisi", () => {
+    expect(interestReminder("2027-01-02", livrets, [{ accountId: "a", date: "2026-12-31" }, { accountId: "b", date: "2027-01-01" }])).toBeNull();
   });
 });
 
