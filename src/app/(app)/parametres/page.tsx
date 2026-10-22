@@ -1,12 +1,13 @@
 import { getProfile } from "@/lib/data/queries";
 import { listIntegrationKeys } from "@/lib/data/integration-actions";
+import { listPasskeys } from "@/lib/data/passkey-actions";
 import { PageHeader } from "@/components/ui/primitives";
 import { SettingsForm } from "./settings-form";
 
 export const metadata = { title: "Paramètres" };
 
 export default async function SettingsPage() {
-  const [profile, keys] = await Promise.all([getProfile(), listIntegrationKeys()]);
+  const [profile, keys, passkeys] = await Promise.all([getProfile(), listIntegrationKeys(), listPasskeys()]);
   const lastSync = keys.map((k) => k.lastRequest).filter((d): d is string => !!d).sort().at(-1);
   const gkoiStatus = !keys.length
     ? null
@@ -18,7 +19,7 @@ export default async function SettingsPage() {
       <div className="pr-12 lg:pr-0">
         <PageHeader kicker="Gestion" title="Paramètres" />
       </div>
-      <SettingsForm profile={profile} gkoiStatus={gkoiStatus} />
+      <SettingsForm profile={profile} gkoiStatus={gkoiStatus} passkeyCount={passkeys.length} />
     </>
   );
 }

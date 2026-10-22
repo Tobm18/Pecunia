@@ -1,29 +1,95 @@
-import type { ReactNode } from "react";
+import { clsx } from "clsx";
+import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 import { AppVersion } from "@/components/app/app-version";
 import { Logo } from "@/components/ui/logo";
+import { Spinner } from "@/components/ui/spinner";
 
-/** Mise en page des écrans d'authentification : bandeau accent + formulaire. */
-export function AuthShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+/**
+ * Écrans d'authentification à la manière d'une app iPhone : icône et nom au centre, champs groupés
+ * dans un seul bloc arrondi, grands boutons pleine largeur, lien secondaire en bas d'écran.
+ */
+export function AuthShell({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: ReactNode; footer?: ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col md:flex-row">
-      <div className="m-4 flex flex-col justify-between rounded-[22px] bg-accent p-7 text-on-accent md:m-0 md:w-1/2 md:rounded-none md:p-10">
-        <p className="flex items-center gap-2 text-lg font-bold">
-          <Logo className="size-8" /> Pecunia
-        </p>
-        <p className="mt-8 text-5xl leading-[1.02] font-extrabold md:text-6xl">
-          Chaque euro
-          <br />à sa place.
-        </p>
-        <p className="mt-6 hidden text-xs opacity-80 md:block">Budget, comptes &amp; prévisionnel - usage personnel</p>
-      </div>
-      <div className="flex flex-1 items-center justify-center px-4 py-6 md:px-10">
-        <div className="w-full max-w-sm">
-          <h1 className="text-2xl font-extrabold">{title}</h1>
-          {subtitle && <p className="mt-1 text-sm text-n-600">{subtitle}</p>}
-          <div className="mt-6">{children}</div>
-          <AppVersion className="mt-10 text-center" full />
+    <div className="flex min-h-dvh flex-col items-center px-5 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <main className="flex w-full max-w-sm flex-1 flex-col justify-center py-8">
+        <div className="flex flex-col items-center text-center">
+          <Logo className="size-[84px] rounded-[20px] shadow-[0_8px_22px_-10px_rgba(20,130,112,0.7)]" />
+          <h1 className="mt-5 text-[28px] leading-tight font-extrabold">{title}</h1>
+          {subtitle && <p className="mt-1 text-[15px] text-n-600">{subtitle}</p>}
         </div>
-      </div>
+        <div className="mt-9">{children}</div>
+      </main>
+      <footer className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
+        {footer}
+        <AppVersion />
+      </footer>
     </div>
+  );
+}
+
+/** Bloc de champs groupés (style Réglages d'iOS), séparateurs en retrait. */
+export function FieldGroup({ children, invalid }: { children: ReactNode; invalid?: boolean }) {
+  return (
+    <div
+      className={clsx(
+        // focus : le bloc entier se souligne (pas de contour par champ, rogné par les coins arrondis)
+        "overflow-hidden rounded-2xl bg-surface shadow-card ring-1 transition-shadow [&>*+*]:border-t [&>*+*]:border-divider",
+        invalid ? "ring-danger" : "ring-divider focus-within:ring-2 focus-within:ring-accent",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Champ sans bordure d'un FieldGroup ; le libellé reste lu par les lecteurs d'écran. */
+export function GroupInput({ label, className, ...props }: ComponentProps<"input"> & { label: string }) {
+  return (
+    <label className="ml-4 block">
+      <span className="sr-only">{label}</span>
+      <input
+        placeholder={label}
+        className={clsx("block h-[52px] w-full bg-transparent pr-4 text-[17px] text-text placeholder:text-n-500 focus-visible:outline-none!", className)}
+        {...props}
+      />
+    </label>
+  );
+}
+
+/** Grand bouton pleine largeur : « primary » plein, « secondary » sur fond de surface. */
+export function AuthButton({
+  variant = "primary",
+  loading = false,
+  className,
+  children,
+  type = "button",
+  disabled,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary"; loading?: boolean }) {
+  return (
+    <button
+      type={type}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      className={clsx(
+        "flex h-[52px] w-full items-center justify-center gap-2 rounded-2xl text-[17px] font-semibold transition-[transform,opacity] duration-100 active:scale-[0.98] active:opacity-85 disabled:opacity-60",
+        variant === "primary" ? "bg-accent text-on-accent" : "bg-surface text-text shadow-card ring-1 ring-divider",
+        className,
+      )}
+      {...props}
+    >
+      {loading && <Spinner size={16} />}
+      {children}
+    </button>
+  );
+}
+
+/** Message d'erreur sous le formulaire, annoncé aux lecteurs d'écran. */
+export function AuthError({ children }: { children?: ReactNode }) {
+  if (!children) return null;
+  return (
+    <p role="alert" className="px-1 text-center text-sm font-medium text-danger-700">
+      {children}
+    </p>
   );
 }

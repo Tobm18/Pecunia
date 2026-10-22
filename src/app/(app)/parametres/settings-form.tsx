@@ -31,8 +31,8 @@ export function Row({ label, hint, children }: { label: string; hint?: string; c
 export const linkButtonClass =
   "inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-n-300 px-3 text-sm font-semibold hover:bg-n-100";
 
-/** gkoiStatus : état de la liaison avec G Koi À Faire (null = pas reliée). */
-export function SettingsForm({ profile, gkoiStatus }: { profile: Profile; gkoiStatus: string | null }) {
+/** gkoiStatus : état de la liaison avec G Koi À Faire (null = pas reliée) ; passkeyCount : passkeys enregistrées. */
+export function SettingsForm({ profile, gkoiStatus, passkeyCount }: { profile: Profile; gkoiStatus: string | null; passkeyCount: number }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -131,6 +131,14 @@ export function SettingsForm({ profile, gkoiStatus }: { profile: Profile; gkoiSt
         <div className="divide-y divide-divider">
           <Row label="Utilisateur">
             <span className="text-sm text-n-700">{profile.email}</span>
+          </Row>
+          <Row
+            label="Passkeys"
+            hint={passkeyCount ? `${passkeyCount} enregistrée${passkeyCount > 1 ? "s" : ""} · Face ID, Touch ID` : "Connexion par Face ID ou Touch ID"}
+          >
+            <Link href="/parametres/passkeys" className={linkButtonClass}>
+              {passkeyCount ? "Gérer" : "Ajouter"} <ChevronRight size={15} aria-hidden />
+            </Link>
           </Row>
           <div className="py-3">
             <form action={signOut}>

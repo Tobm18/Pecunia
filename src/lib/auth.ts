@@ -1,6 +1,7 @@
 import "server-only";
 import { betterAuth } from "better-auth";
 import { apiKey } from "@better-auth/api-key";
+import { passkey } from "@better-auth/passkey";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { db, schema } from "@/lib/db";
@@ -9,6 +10,8 @@ import { db, schema } from "@/lib/db";
  * Authentification (Better Auth) : email + mot de passe, sans envoi d'email.
  * Sessions en base (table session), cookie httpOnly posé par /api/auth/*.
  */
+const appUrl = new URL(process.env.BETTER_AUTH_URL ?? "http://localhost:3000");
+
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET,
@@ -22,6 +25,7 @@ export const auth = betterAuth({
       account: schema.account,
       verification: schema.verification,
       apikey: schema.apikey,
+      passkey: schema.passkey,
     },
   }),
   advanced: { database: { generateId: "uuid" } },
@@ -39,6 +43,14 @@ export const auth = betterAuth({
       defaultPrefix: "pec_",
       rateLimit: { enabled: false },
       permissions: { defaultPermissions: { wishes: ["sync"] } },
+    }),
+    // Passkeys (Face ID, Touch ID…) : liées au domaine de l'app ; une URL de prévisualisation
+    // Vercel ne peut donc pas s'en servir.
+    passkey({
+      rpID: appUrl.hostname,
+      rpName: "Pecunia",
+      origin: appUrl.origin,
+      authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
     }),
     // doit rester le dernier plugin : pose les cookies depuis les server actions
     nextCookies(),

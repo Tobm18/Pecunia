@@ -54,7 +54,7 @@ db/migrations/           Schéma SQL (PostgreSQL standard), appliqué par script
 src/lib/domain/          Logique métier pure et testée : montants, dates, KPI, budgets,
                          mémoire des lieux, construction des saisies, CSV
 src/lib/db/              Connexion et schéma Drizzle (miroir du SQL)
-src/lib/auth.ts          Better Auth (sessions en base, cookies)
+src/lib/auth.ts          Better Auth (sessions en base, cookies, passkeys, clés d'API)
 src/lib/data/            Accès aux données : lectures (queries.ts) et mutations validées
                          par zod (actions.ts…), toujours filtrées sur l'utilisateur connecté
 src/components/          UI : primitives, navigation, saisie, transactions, comptes, graphiques
@@ -83,7 +83,7 @@ src/proxy.ts             Redirection vers /login sans cookie de session
 
 ### MVP (v1) - livré
 
-- [x] Authentification : email + mot de passe, messages neutres. Pas d'envoi d'email : ni lien magique ni réinitialisation du mot de passe
+- [x] Authentification : email + mot de passe ou **passkey** (Face ID, Touch ID : bouton dédié et suggestion dans le champ email, gestion dans Paramètres → Passkeys, migration `0003_passkeys.sql`), messages neutres. Pas d'envoi d'email : ni lien magique ni réinitialisation du mot de passe. Les passkeys sont liées au domaine de production (`BETTER_AUTH_URL`) : elles ne marchent pas sur une URL de prévisualisation Vercel
 - [x] Comptes : création, liste, soldes, sparklines, détail, ajustement de solde (régularisation), « dans le budget », modification, archivage / restauration
 - [x] Saisie rapide : sortie / entrée / virement, mémoire des lieux, suggestions, nature intérêts / revenu, date et compte conservés, alerte de budget à 80 % / 100 %. Feuille mobile et page web
 - [x] Transactions : filtres (recherche, mois, compte, type, catégorie), regroupement par jour, modification, suppression avec confirmation
@@ -144,10 +144,10 @@ Principes d'interface « fluide » à la manière d'Apple (`src/lib/motion/sprin
 Dans Safari : Partager → « Sur l'écran d'accueil ». Pecunia s'ouvre alors en plein écran, sans l'interface du navigateur. La session est distincte de celle de Safari, il faut donc se reconnecter une fois.
 
 - Manifeste `src/app/manifest.ts` (mode `standalone`, raccourci « Nouvelle saisie »), balises iOS dans `src/app/layout.tsx`. La barre d'état prend la couleur du thème choisi.
-- Logo : un P dont la boucle est un anneau de budget, avec un € au centre (`src/app/icon.svg`, composant `src/components/ui/logo.tsx`). Icônes : `src/app/apple-icon.png`, `src/app/favicon.ico`, `public/icon-*.png` (dont une version adaptative Android).
+- Logo : un P dont la boucle est un camembert de budget, avec un € découpé au centre (`src/app/icon.svg`, composant `src/components/ui/logo.tsx`). Icônes : `src/app/apple-icon.png`, `src/app/favicon.ico`, `public/icon-*.png` (dont une version adaptative Android).
 - Service worker `public/sw.js`, en production seulement : écran « Pas de connexion » (`public/offline.html`) au lieu de l'erreur du navigateur, et fichiers statiques en cache. Aucune page ni donnée n'est mise en cache.
 - Comme une app : champs en 16 px sur mobile (pas de zoom au toucher), pas de menu d'appui long sur les boutons et les liens, un lien de retour sur chaque sous-page.
 
 ### Restant
 
-- [ ] Passkey (WebAuthn), consultation hors connexion (aujourd'hui : écran « Pas de connexion »)
+- [ ] Consultation hors connexion (aujourd'hui : écran « Pas de connexion »)

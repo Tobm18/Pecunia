@@ -1,115 +1,132 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState, type FormEvent } from "react";
-import { KeyRound } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ScanFace } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { Button, FieldError, Input, Label } from "@/components/ui/primitives";
+import { AuthButton, AuthError, FieldGroup, GroupInput } from "../auth-shell";
 
-const REQUIRED = "Ce champ est obligatoire";
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+/** Fenêtre Face ID / Touch ID fermée par l'utilisateur : pas une erreur à afficher. */
+const cancelled = (message?: string) => /NotAllowed|abort|cancel|annul/i.test(message ?? "");
 
-export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
+export function LoginForm() {
   const router = useRouter();
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [invalid, setInvalid] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState<"password" | "passkey" | null>(null);
+  const [passkeys, setPasskeys] = useState(false);
 
-  function validateEmail(): boolean {
-    if (!email.trim()) {
-      setFieldErrors({ email: REQUIRED });
-      emailRef.current?.focus();
-      return false;
-    }
-    if (!isEmail(email.trim())) {
-      setFieldErrors({ email: "Adresse email invalide" });
-      emailRef.current?.focus();
-      return false;
-    }
-    return true;
+  function enterApp() {
+    // le spinner reste affiché jusqu'à l'arrivée sur le tableau de bord
+    router.replace("/");
+    router.refresh();
   }
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.PublicKeyCredential) return;
+    setPasskeys(true);
+    // Remplissage automatique : en touchant le champ email, iOS propose la passkey dans la barre QuickType
+    void PublicKeyCredential.isConditionalMediationAvailable?.().then((available) => {
+      if (!available) return;
+      void authClient.signIn.passkey({ autoFill: true }).then(({ error: e }) => {
+        if (!e) enterApp();
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    setFieldErrors({});
-    if (!validateEmail()) return;
+    setInvalid(false);
+    if (!isEmail(email.trim())) {
+      setInvalid(true);
+      setError(email.trim() ? "Adresse email invalide" : "Saisis ton email");
+      emailRef.current?.focus();
+      return;
+    }
     if (!password) {
-      setFieldErrors({ password: REQUIRED });
+      setInvalid(true);
+      setError("Saisis ton mot de passe");
       passwordRef.current?.focus();
       return;
     }
-    setPending(true);
+    setPending("password");
     try {
       const { error: authError } = await authClient.signIn.email({ email: email.trim(), password });
       if (authError) {
-        const invalid = authError.status === 401 || authError.code === "INVALID_EMAIL_OR_PASSWORD";
-        setError(invalid ? "Email ou mot de passe incorrect" : "Connexion impossible, réessaie dans un instant");
-        if (invalid) setPassword("");
-        setPending(false);
+        const wrong = authError.status === 401 || authError.code === "INVALID_EMAIL_OR_PASSWORD";
+        setError(wrong ? "Email ou mot de passe incorrect" : "Connexion impossible, réessaie dans un instant");
+        if (wrong) {
+          setInvalid(true);
+          setPassword("");
+          passwordRef.current?.focus();
+        }
+        setPending(null);
         return;
       }
-      // le spinner reste affiché jusqu'à l'arrivée sur le tableau de bord
-      router.replace("/");
-      router.refresh();
+      enterApp();
     } catch {
       setError("Connexion impossible, réessaie dans un instant");
-      setPending(false);
+      setPending(null);
+    }
+  }
+
+  async function withPasskey() {
+    setError(null);
+    setInvalid(false);
+    setPending("passkey");
+    const { error: e } = await authClient.signIn.passkey().catch((err: Error) => ({ error: { message: err.message } }));
+    if (!e) return enterApp();
+    setPending(null);
+    if (!cancelled(e.message)) {
+      setError("Passkey non reconnue. Connecte-toi avec ton mot de passe, puis ajoute-la dans Paramètres.");
     }
   }
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-      <div>
-        <Label htmlFor="email">Email</Label>
-        <Input
-          id="email"
+      <FieldGroup invalid={invalid}>
+        <GroupInput
+          label="Email"
           ref={emailRef}
           type="email"
-          autoComplete="email"
+          inputMode="email"
+          // « webauthn » : les passkeys apparaissent dans les suggestions du champ
+          autoComplete="username webauthn"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="next"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          aria-invalid={!!fieldErrors.email}
+          aria-invalid={invalid || undefined}
         />
-        <FieldError>{fieldErrors.email}</FieldError>
-      </div>
-      <div>
-        <Label htmlFor="password">Mot de passe</Label>
-        <Input
-          id="password"
+        <GroupInput
+          label="Mot de passe"
           ref={passwordRef}
           type="password"
           autoComplete="current-password"
+          enterKeyHint="go"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          aria-invalid={!!fieldErrors.password}
+          aria-invalid={invalid || undefined}
         />
-        <FieldError>{fieldErrors.password}</FieldError>
-      </div>
-      <Button type="submit" variant="primary" loading={pending} disabled={pending} className="w-full">
-        {pending ? "Connexion…" : "Se connecter"}
-      </Button>
-      <FieldError>{error}</FieldError>
-      <div className="flex items-center gap-3 text-xs text-n-600">
-        <span className="h-px flex-1 bg-divider" />
-        ou
-        <span className="h-px flex-1 bg-divider" />
-      </div>
-      <Button disabled title="Bientôt disponible" className="w-full">
-        <KeyRound size={16} /> Passkey
-      </Button>
-      {allowSignup && (
-        <p className="text-center text-sm text-n-600">
-          Pas encore de compte ?{" "}
-          <Link href="/inscription" className="font-bold text-accent-700">
-            Créer un compte
-          </Link>
-        </p>
+      </FieldGroup>
+      <AuthError>{error}</AuthError>
+      <AuthButton type="submit" loading={pending === "password"} disabled={pending !== null}>
+        {pending === "password" ? "Connexion…" : "Se connecter"}
+      </AuthButton>
+      {passkeys && (
+        <AuthButton variant="secondary" onClick={withPasskey} loading={pending === "passkey"} disabled={pending !== null}>
+          {pending !== "passkey" && <ScanFace size={20} className="text-accent" aria-hidden />}
+          Se connecter avec une passkey
+        </AuthButton>
       )}
     </form>
   );

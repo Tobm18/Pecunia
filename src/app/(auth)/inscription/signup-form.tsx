@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
-import { Button, FieldError, Input, Label } from "@/components/ui/primitives";
+import { AuthButton, AuthError, FieldGroup, GroupInput } from "../auth-shell";
 
 const MIN_LENGTH = 8;
 
@@ -37,25 +36,33 @@ export function SignupForm() {
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-      <div>
-        <Label htmlFor="name">Prénom (facultatif)</Label>
-        <Input id="name" autoComplete="given-name" value={name} onChange={(e) => setName(e.target.value)} />
-      </div>
-      <div>
-        <Label htmlFor="email">Email</Label>
-        <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-      </div>
-      <div>
-        <Label htmlFor="password">Mot de passe</Label>
-        <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-      </div>
-      <FieldError>{error}</FieldError>
-      <Button type="submit" variant="primary" loading={pending} className="w-full">
+      <FieldGroup invalid={!!error}>
+        <GroupInput label="Prénom (facultatif)" autoComplete="given-name" enterKeyHint="next" value={name} onChange={(e) => setName(e.target.value)} />
+        <GroupInput
+          label="Email"
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="next"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <GroupInput
+          label={`Mot de passe (${MIN_LENGTH} caractères min.)`}
+          type="password"
+          autoComplete="new-password"
+          enterKeyHint="go"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+      </FieldGroup>
+      <AuthError>{error}</AuthError>
+      <AuthButton type="submit" loading={pending}>
         {pending ? "Création du compte…" : "Créer mon compte"}
-      </Button>
-      <Link href="/login" className="text-sm font-bold text-accent-700">
-        ← J&apos;ai déjà un compte
-      </Link>
+      </AuthButton>
     </form>
   );
 }

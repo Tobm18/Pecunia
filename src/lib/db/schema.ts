@@ -91,6 +91,22 @@ export const apikey = pgTable("apikey", {
   metadata: text("metadata"),
 });
 
+export const passkey = pgTable("passkey", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name"),
+  publicKey: text("public_key").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  credentialID: text("credential_id").notNull(),
+  counter: integer("counter").notNull().default(0),
+  deviceType: text("device_type").notNull(),
+  backedUp: boolean("backed_up").notNull().default(false),
+  transports: text("transports"),
+  createdAt: ts("created_at").defaultNow(),
+  aaguid: text("aaguid"),
+});
+
 // ---------------------------------------------------------------------------
 // Données métier
 // ---------------------------------------------------------------------------
