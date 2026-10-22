@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { guessAccountType, initialBalanceFor, pickBalanceCents, toBankLines, type BankTransaction } from "./bank-sync";
+import { bankAccountLabel, guessAccountType, initialBalanceFor, pickBalanceCents, toBankLines, type BankTransaction } from "./bank-sync";
 
 const tx = (over: Partial<BankTransaction> = {}): BankTransaction => ({
   entry_reference: "ref-1",
@@ -59,6 +59,15 @@ describe("pickBalanceCents", () => {
 describe("initialBalanceFor", () => {
   it("fait coïncider solde Pecunia et solde bancaire", () => {
     expect(initialBalanceFor(100_000, -25_000)).toBe(125_000);
+  });
+});
+
+describe("bankAccountLabel", () => {
+  it("préfère le produit, puis le libellé, jamais le nom du titulaire", () => {
+    expect(bankAccountLabel({ product: "Livret A", details: "x" }, null)).toBe("Livret A");
+    expect(bankAccountLabel({ details: "Compte de dépôt" }, null)).toBe("Compte de dépôt");
+    expect(bankAccountLabel({}, "FR7612345678901234567890123")).toBe("Compte courant …0123");
+    expect(bankAccountLabel({ cash_account_type: "SVGS" }, null)).toBe("Épargne");
   });
 });
 

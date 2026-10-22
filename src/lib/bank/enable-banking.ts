@@ -67,8 +67,14 @@ async function call<T>(path: string, init?: { method?: string; body?: unknown })
 export interface BankSessionAccount {
   uid: string;
   account_id?: { iban?: string | null } | null;
+  /** Nom du titulaire (pas celui du compte) */
   name?: string | null;
+  /** Libellé du compte (posé par la banque ou par le client) */
   details?: string | null;
+  /** Produit bancaire (ex. « Livret A ») */
+  product?: string | null;
+  /** CACC : compte courant, SVGS : épargne… */
+  cash_account_type?: string | null;
   currency?: string | null;
 }
 
@@ -118,12 +124,17 @@ export async function getBalances(uid: string): Promise<BankBalance[]> {
   return balances ?? [];
 }
 
-/** Toutes les écritures comptabilisées depuis `dateFrom` (pagination suivie). */
-export async function getTransactions(uid: string, dateFrom: string): Promise<BankTransaction[]> {
+/**
+ * Toutes les écritures comptabilisées depuis `dateFrom` (pagination suivie). Sans date, Enable
+ * Banking cherche la plus longue période que la banque accepte de fournir (stratégie « longest »).
+ */
+export async function getTransactions(uid: string, dateFrom: string | null): Promise<BankTransaction[]> {
   const out: BankTransaction[] = [];
   let continuationKey: string | undefined;
   for (let page = 0; page < 40; page++) {
-    const query = new URLSearchParams({ date_from: dateFrom, transaction_status: "BOOK" });
+    const query = new URLSearchParams({ transaction_status: "BOOK" });
+    if (dateFrom) query.set("date_from", dateFrom);
+    else query.set("strategy", "longest");
     if (continuationKey) query.set("continuation_key", continuationKey);
     const data = await call<{ transactions: BankTransaction[]; continuation_key?: string | null }>(`/accounts/${encodeURIComponent(uid)}/transactions?${query}`);
     out.push(...(data.transactions ?? []));

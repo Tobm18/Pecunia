@@ -94,6 +94,17 @@ export function initialBalanceFor(bankBalanceCents: number, transactionsSumCents
   return bankBalanceCents - transactionsSumCents;
 }
 
+/**
+ * Nom lisible d'un compte bancaire. Le champ « name » de la banque est celui du titulaire : on
+ * préfère le produit ou le libellé du compte, à défaut un nom générique avec la fin de l'IBAN.
+ */
+export function bankAccountLabel(a: { product?: string | null; details?: string | null; cash_account_type?: string | null }, iban: string | null): string {
+  const named = clean(a.product ?? "") || clean(a.details ?? "");
+  if (named) return named.slice(0, 60);
+  const generic = a.cash_account_type === "SVGS" ? "Épargne" : "Compte courant";
+  return iban ? `${generic} …${iban.slice(-4)}` : generic;
+}
+
 /** Type de compte Pecunia deviné d'après le nom du compte bancaire. */
 export function guessAccountType(name: string | null): "current" | "savings" {
   return /livret|epargne|épargne|\bpel\b|\bcel\b|\bldd[sp]?\b|pep\b/i.test(name ?? "") ? "savings" : "current";

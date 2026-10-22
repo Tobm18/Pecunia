@@ -139,7 +139,7 @@ export function BankSettings({ overview, justConnected, authError }: { overview:
                       {p.name}
                     </option>
                   ))}
-                  <option value={NEW}>+ Nouveau compte</option>
+                  <option value={NEW}>+ Créer « {a.name ?? "Compte bancaire"} »</option>
                 </Select>
               </Row>
             ))}

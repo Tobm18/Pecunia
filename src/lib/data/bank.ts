@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { db, schema as s } from "@/lib/db";
 import { BankApiError, bankName, createSession, deleteSession, getBalances, getTransactions, isBankConfigured } from "@/lib/bank/enable-banking";
-import { guessAccountType, initialBalanceFor, pickBalanceCents, toBankLines } from "@/lib/domain/bank-sync";
+import { bankAccountLabel, guessAccountType, initialBalanceFor, pickBalanceCents, toBankLines } from "@/lib/domain/bank-sync";
 import { createCategorizer, INTEREST_PATTERN, normalizeText } from "@/lib/domain/csv-import";
 import { todayIso } from "@/lib/domain/dates";
 import { toCategory, toPlaceMemory } from "./mappers";
@@ -16,7 +16,6 @@ import { toCategory, toPlaceMemory } from "./mappers";
 const CHUNK = 500;
 /** Marge de recouvrement à chaque synchronisation (écritures comptabilisées avec retard) */
 const OVERLAP_DAYS = 7;
-const FIRST_SYNC_DAYS = 365;
 const LIMITED_HISTORY_DAYS = 90;
 
 const shiftDays = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
@@ -72,7 +71,7 @@ export async function completeAuthorization(userId: string, state: string, code:
       await tx.insert(s.bankAccounts).values(
         session.accounts.map((a) => {
           const iban = a.account_id?.iban ?? null;
-          const name = a.name ?? a.details ?? null;
+          const name = bankAccountLabel(a, iban);
           const before = previous.find((p) => (iban && p.iban === iban) || (!iban && p.name && p.name === name));
           return {
             user_id: userId,
@@ -171,11 +170,12 @@ function errorText(error: unknown): string {
 /** Écritures d'un compte, avec un historique plus court si la banque refuse la période demandée. */
 async function fetchLines(uid: string, syncedUntil: string | null) {
   const today = todayIso();
-  const from = syncedUntil ? shiftDays(syncedUntil, -OVERLAP_DAYS) : shiftDays(today, -FIRST_SYNC_DAYS);
+  // 1re synchro : la plus longue période que la banque fournit ; ensuite, quelques jours de recouvrement
+  const from = syncedUntil ? shiftDays(syncedUntil, -OVERLAP_DAYS) : null;
   try {
     return toBankLines(await getTransactions(uid, from));
   } catch (error) {
-    // historique complet refusé par la banque (consentement ancien) : on se limite aux 90 derniers jours
+    // historique complet refusé par la banque : on se limite aux 90 derniers jours
     if (!syncedUntil && error instanceof BankApiError && (error.status === 400 || error.status === 422)) {
       return toBankLines(await getTransactions(uid, shiftDays(today, -LIMITED_HISTORY_DAYS)));
     }
