@@ -11,7 +11,7 @@ import { balanceSeriesFromCurrent, groupByDay, signedTotal, summarize } from "@/
 import { shortAccountName } from "@/lib/domain/accounts";
 import { BalanceArea } from "@/components/charts/charts";
 import { IconBadge } from "@/components/ui/icons";
-import { Card, Chip, EmptyState } from "@/components/ui/primitives";
+import { BackLink, Card, Chip, EmptyState } from "@/components/ui/primitives";
 import { AccountSettings, AdjustBalanceButton } from "@/components/accounts/account-dialogs";
 import { GoalCard } from "@/components/accounts/goals-section";
 import { AccountTransactions } from "./account-transactions";
@@ -43,9 +43,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3">
-        <Link href="/comptes" className="text-xs font-bold text-accent-700">
-          ‹ Tous les comptes
-        </Link>
+        <BackLink href="/comptes">Comptes</BackLink>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <IconBadge icon={account.icon} color={account.color} size="lg" />

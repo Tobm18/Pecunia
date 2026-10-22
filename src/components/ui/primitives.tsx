@@ -1,11 +1,25 @@
 /** Briques d'interface partagées (boutons, cartes, champs, segments, puces, barres). */
 import { clsx } from "clsx";
 import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode, SelectHTMLAttributes } from "react";
 import type { BudgetStatus } from "@/lib/domain/budgets";
 import { Spinner } from "./spinner";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+
+/** Retour vers l'écran parent, à la manière d'iOS : chevron et libellé, grande zone de toucher. */
+export function BackLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="-ml-2.5 inline-flex min-h-11 items-center gap-0.5 self-start rounded-lg pr-2 text-[17px] font-medium text-accent-700 transition-opacity active:opacity-50 md:min-h-9 md:text-[15px]"
+    >
+      <ChevronLeft size={26} strokeWidth={2.4} className="shrink-0" aria-hidden />
+      {children}
+    </Link>
+  );
+}
 
 export function buttonClass(variant: ButtonVariant = "secondary", extra?: string) {
   return clsx(

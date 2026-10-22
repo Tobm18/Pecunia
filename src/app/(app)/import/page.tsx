@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { PageHeader } from "@/components/ui/primitives";
+import { BackLink, PageHeader } from "@/components/ui/primitives";
 import { CsvImport } from "./csv-import";
 
 export const metadata = { title: "Importer un CSV" };
@@ -10,9 +9,7 @@ export default async function ImportPage({ searchParams }: { searchParams: Promi
     <>
       {/* installée, l'app n'a pas de bouton « précédent » : retour vers l'écran d'où l'on vient */}
       <div className="flex flex-col gap-3">
-        <Link href={compte ? `/comptes/${compte}` : "/parametres"} className="text-xs font-bold text-accent-700">
-          ‹ {compte ? "Le compte" : "Paramètres"}
-        </Link>
+        <BackLink href={compte ? `/comptes/${compte}` : "/parametres"}>{compte ? "Le compte" : "Paramètres"}</BackLink>
         <PageHeader kicker="Transactions" title="Importer un CSV" />
       </div>
       <CsvImport initialAccountId={compte ?? null} />

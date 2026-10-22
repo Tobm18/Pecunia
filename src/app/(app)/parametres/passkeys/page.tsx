@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { listPasskeys } from "@/lib/data/passkey-actions";
-import { PageHeader } from "@/components/ui/primitives";
+import { BackLink, PageHeader } from "@/components/ui/primitives";
 import { PasskeySettings } from "./passkey-settings";
 
 export const metadata = { title: "Passkeys" };
@@ -10,9 +9,7 @@ export default async function PasskeysPage() {
   return (
     <>
       <div className="flex flex-col gap-3">
-        <Link href="/parametres" className="text-xs font-bold text-accent-700">
-          ‹ Paramètres
-        </Link>
+        <BackLink href="/parametres">Paramètres</BackLink>
         <PageHeader kicker="Compte" title="Passkeys" />
       </div>
       <PasskeySettings passkeys={passkeys} />
