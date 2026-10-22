@@ -1,6 +1,7 @@
 "use client";
 
-import { Download, LogOut } from "lucide-react";
+import { ChevronRight, Download, LogOut } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
 import { signOut, updateProfile } from "@/lib/data/actions";
@@ -13,7 +14,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { APP_NAME, copyrightLine, versionLabel } from "@/lib/version";
 
-function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+export function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 py-3">
       <div>
@@ -25,7 +26,12 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
-export function SettingsForm({ profile }: { profile: Profile }) {
+/** Bouton secondaire en forme de lien (même style que « Importer »). */
+export const linkButtonClass =
+  "inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-n-300 px-3 text-sm font-semibold hover:bg-n-100";
+
+/** gkoiStatus : état de la liaison avec G Koi À Faire (null = pas reliée). */
+export function SettingsForm({ profile, gkoiStatus }: { profile: Profile; gkoiStatus: string | null }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -99,7 +105,7 @@ export function SettingsForm({ profile }: { profile: Profile }) {
         <h2 className="text-[11px] font-bold uppercase tracking-wider text-n-700">Données</h2>
         <div className="divide-y divide-divider">
           <Row label="Importer un CSV" hint="Historique d'un compte (tableur, export bancaire)">
-            <a href="/import" className="inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-n-300 px-3 text-sm font-semibold hover:bg-n-100">
+            <a href="/import" className={linkButtonClass}>
               Importer
             </a>
           </Row>
@@ -109,6 +115,11 @@ export function SettingsForm({ profile }: { profile: Profile }) {
           <Row label="Sauvegarde JSON" hint={`Dernière sauvegarde : ${lastBackup}`}>
             {/* la date de dernière sauvegarde est rafraîchie une fois le fichier reçu */}
             <ExportButton format="json" label="JSON" onDone={() => router.refresh()} />
+          </Row>
+          <Row label="G Koi À Faire" hint={gkoiStatus ?? "Ses achats en attente proposés dans le Prévisionnel"}>
+            <Link href="/parametres/g-koi-a-faire" className={linkButtonClass}>
+              {gkoiStatus ? "Gérer" : "Relier"} <ChevronRight size={15} aria-hidden />
+            </Link>
           </Row>
         </div>
       </Card>

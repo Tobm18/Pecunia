@@ -32,7 +32,7 @@ export async function createIntegrationKey(name: string): Promise<ActionResult<{
   const clean = name.trim().slice(0, 60) || "G Koi À Faire";
   try {
     const created = await auth.api.createApiKey({ body: { name: clean }, headers: await headers() });
-    revalidatePath("/parametres");
+    revalidatePath("/parametres", "layout");
     return { ok: true, data: { key: created.key } };
   } catch {
     return { ok: false, error: "Création de la clé impossible, réessaie dans un instant." };
@@ -42,7 +42,7 @@ export async function createIntegrationKey(name: string): Promise<ActionResult<{
 export async function revokeIntegrationKey(keyId: string): Promise<ActionResult> {
   try {
     await auth.api.deleteApiKey({ body: { keyId }, headers: await headers() });
-    revalidatePath("/parametres");
+    revalidatePath("/parametres", "layout");
     return { ok: true, data: undefined };
   } catch {
     return { ok: false, error: "Révocation impossible, réessaie dans un instant." };
