@@ -2,13 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { authClient } from "@/lib/auth-client";
 import { deletePasskey, type PasskeyInfo } from "@/lib/data/passkey-actions";
 import { Button, Card } from "@/components/ui/primitives";
 import { Modal, useToast } from "@/components/ui/overlay";
 import { Row } from "../settings-form";
 
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+/** Au-delà, la fenêtre Face ID / Touch ID ne s'ouvrira plus : on arrête le chargement. */
+const ADD_TIMEOUT_MS = 90_000;
+
+const shortDate =(iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
 
 /** Nom proposé pour la passkey de cet appareil, pour la reconnaître dans la liste. */
 function deviceName(): string {
@@ -36,10 +40,23 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeyInfo[] }) {
 
   async function add() {
     setAdding(true);
-    const { error } = await authClient.passkey
-      .addPasskey({ name: deviceName() })
-      .catch((err: Error) => ({ error: { message: err.message, code: undefined as string | undefined } }));
+    // une demande de passkey restée en attente (connexion) empêcherait Face ID de s'ouvrir sur iPhone
+    WebAuthnAbortService.cancelCeremony();
+    const timeout = new Promise<{ error: { message: string; code: string } }>((resolve) =>
+      setTimeout(() => resolve({ error: { message: "timeout", code: "TIMEOUT" } }), ADD_TIMEOUT_MS),
+    );
+    const { error } = await Promise.race([
+      authClient.passkey
+        .addPasskey({ name: deviceName() })
+        .catch((err: Error) => ({ error: { message: err.message, code: undefined as string | undefined } })),
+      timeout,
+    ]);
     setAdding(false);
+    if (error && "code" in error && error.code === "TIMEOUT") {
+      WebAuthnAbortService.cancelCeremony();
+      toast("Face ID ne s'est pas ouvert. Ferme complètement l'app, rouvre-la, puis réessaie.", "error");
+      return;
+    }
     if (!error) {
       toast("Passkey ajoutée", "success");
       router.refresh();

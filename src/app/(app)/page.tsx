@@ -136,7 +136,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 pr-12 lg:pr-0">
+      <div className="flex flex-col gap-3">
         <p className="hidden text-[11px] font-bold uppercase tracking-wider text-n-600 md:block">Tableau de bord</p>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <MonthSwitcher path="/" month={month} current={current} params={{ compte: accountId }} />

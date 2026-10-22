@@ -22,7 +22,7 @@ export default async function TransactionsPage({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3 pr-12 lg:pr-0">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-wider text-n-600">Historique</p>
           <h1 className="text-3xl font-extrabold md:text-4xl">Transactions</h1>

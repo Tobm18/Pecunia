@@ -135,7 +135,7 @@ export default async function ForecastPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 pr-12 lg:pr-0">
+      <div className="flex flex-col gap-3">
         <p className="text-[11px] font-bold uppercase tracking-wider text-n-600">Anticipation</p>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-extrabold md:text-4xl">Prévisionnel</h1>

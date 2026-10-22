@@ -54,7 +54,7 @@ export default async function AnalysesPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2 pr-12 lg:pr-0">
+      <div className="flex flex-col gap-2">
         <p className="text-[11px] font-bold uppercase tracking-wider text-n-600">Analyses</p>
         <MonthSwitcher path="/analyses" month={month} current={current} params={{ categorie: params.categorie }} />
       </div>

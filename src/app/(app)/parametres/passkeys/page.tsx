@@ -9,7 +9,7 @@ export default async function PasskeysPage() {
   const passkeys = await listPasskeys();
   return (
     <>
-      <div className="flex flex-col gap-3 pr-12 lg:pr-0">
+      <div className="flex flex-col gap-3">
         <Link href="/parametres" className="text-xs font-bold text-accent-700">
           ‹ Paramètres
         </Link>

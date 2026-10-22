@@ -22,7 +22,7 @@ export default async function RecurrencesPage() {
 
   return (
     <>
-      <div className="pr-12 lg:pr-0">
+      <div>
         <PageHeader kicker="Gestion" title="Récurrences" />
       </div>
       <RecurrencesManager

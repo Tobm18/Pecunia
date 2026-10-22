@@ -39,7 +39,7 @@ export default async function AccountsPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="pr-12 lg:pr-0">
+      <div>
         <PageHeader kicker="Patrimoine" title="Comptes" actions={<NewAccountButton />} />
       </div>
 

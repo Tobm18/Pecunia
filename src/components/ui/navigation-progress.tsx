@@ -57,7 +57,8 @@ export function NavigationProgress() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none fixed inset-x-0 top-0 z-[70] h-[3px]"
+      // sous la barre d'état de l'iPhone (app installée), pas derrière
+      className="pointer-events-none fixed inset-x-0 top-[env(safe-area-inset-top)] z-[70] h-[3px]"
       style={{ opacity: phase === "idle" ? 0 : 1, transition: "opacity 300ms" }}
     >
       <div

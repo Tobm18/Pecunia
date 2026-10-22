@@ -12,7 +12,7 @@ export default async function CategoriesPage() {
   );
   return (
     <>
-      <div className="pr-12 lg:pr-0">
+      <div>
         <PageHeader kicker="Gestion" title="Catégories" />
       </div>
       <CategoriesManager categories={categories} budgetByCategory={budgetByCategory} />

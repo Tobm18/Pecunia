@@ -16,7 +16,7 @@ export default async function SettingsPage() {
       : "Reliée · en attente de synchronisation";
   return (
     <>
-      <div className="pr-12 lg:pr-0">
+      <div>
         <PageHeader kicker="Gestion" title="Paramètres" />
       </div>
       <SettingsForm profile={profile} gkoiStatus={gkoiStatus} passkeyCount={passkeys.length} />

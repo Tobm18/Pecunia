@@ -1,8 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ScanFace } from "lucide-react";
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { authClient } from "@/lib/auth-client";
 import { AuthButton, AuthError, FieldGroup, GroupInput } from "../auth-shell";
 
@@ -11,7 +11,6 @@ const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 const cancelled = (message?: string) => /NotAllowed|abort|cancel|annul/i.test(message ?? "");
 
 export function LoginForm() {
-  const router = useRouter();
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState("");
@@ -22,9 +21,10 @@ export function LoginForm() {
   const [passkeys, setPasskeys] = useState(false);
 
   function enterApp() {
-    // le spinner reste affiché jusqu'à l'arrivée sur le tableau de bord
-    router.replace("/");
-    router.refresh();
+    // Rechargement complet plutôt que navigation interne : aucune demande de passkey en attente ne
+    // survit (sur iPhone, elle bloquerait l'ajout d'une passkey dans Paramètres). Le spinner reste
+    // affiché jusqu'à l'arrivée sur le tableau de bord.
+    window.location.replace("/");
   }
 
   useEffect(() => {
@@ -37,6 +37,8 @@ export function LoginForm() {
         if (!e) enterApp();
       });
     });
+    // en quittant l'écran, la demande en attente est annulée
+    return () => WebAuthnAbortService.cancelCeremony();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

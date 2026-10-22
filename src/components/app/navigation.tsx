@@ -8,10 +8,10 @@ import { Logo } from "@/components/ui/logo";
 import {
   ChartColumn,
   CreditCard,
+  Ellipsis,
   LayoutGrid,
   List,
   LogOut,
-  Menu,
   Plus,
   Repeat,
   Settings,
@@ -112,36 +112,52 @@ export function Sidebar() {
   );
 }
 
-/** Barre du bas persistante (mobile) + bouton + central qui ouvre la saisie rapide. */
+/** Onglets de la barre du bas (mobile), de part et d'autre du bouton de saisie. */
+const TABS: NavItem[] = [
+  { href: "/", label: "Accueil", icon: LayoutGrid },
+  { href: "/comptes", label: "Comptes", icon: CreditCard },
+  { href: "/prevision", label: "Prévision", icon: TrendingUp },
+];
+
+/** Rubriques de l'onglet « Plus », chacune avec sa pastille de couleur (à la manière des Réglages d'iOS). */
+const MORE: (NavItem & { color: string })[] = [
+  { href: "/transactions", label: "Transactions", icon: List, color: "#0a84ff" },
+  { href: "/budgets", label: "Budgets", icon: Target, color: "#ff9f0a" },
+  { href: "/recurrences", label: "Récurrences", icon: Repeat, color: "#5e5ce6" },
+  { href: "/categories", label: "Catégories", icon: Tag, color: "#ff375f" },
+  { href: "/analyses", label: "Analyses", icon: ChartColumn, color: "#30b0c7" },
+  { href: "/parametres", label: "Paramètres", icon: Settings, color: "#8e8e93" },
+];
+
+const tabClass = (active: boolean) =>
+  clsx(
+    "flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition-transform duration-100 motion-safe:active:scale-95",
+    // sur matériau translucide : couleurs plus contrastées (vibrance)
+    active ? "text-accent-700" : "text-n-700",
+  );
+
+/**
+ * Barre d'onglets (mobile) : Accueil, Comptes, saisie rapide (+), Prévision et « Plus », qui ouvre
+ * une feuille avec les autres rubriques. Fixe en bas, au-dessus de la zone du geste d'accueil.
+ */
 export function BottomNav() {
   const pathname = usePathname();
   const [entryOpen, setEntryOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const inMore = MORE.some((item) => isActive(pathname, item.href));
   const tab = (item: NavItem) => {
     const active = isActive(pathname, item.href);
     return (
-      <Link
-        key={item.href}
-        href={item.href}
-        aria-current={active ? "page" : undefined}
-        className={clsx(
-          "flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition-transform duration-100 motion-safe:active:scale-95",
-          // sur matériau translucide : couleurs plus contrastées (vibrance)
-          active ? "text-accent-700" : "text-n-700",
-        )}
-      >
-        <item.icon size={21} />
+      <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={tabClass(active)}>
+        <item.icon size={22} strokeWidth={active ? 2.4 : 2} />
         {item.label}
       </Link>
     );
   };
   return (
     <>
-      <nav
-        className="material-bar fixed inset-x-0 bottom-0 z-40 flex items-end px-2 pb-safe lg:hidden"
-        aria-label="Navigation principale"
-      >
-        {tab({ href: "/", label: "Accueil", icon: LayoutGrid })}
-        {tab({ href: "/transactions", label: "Transactions", icon: List })}
+      <nav className="material-bar fixed inset-x-0 bottom-0 z-40 flex items-end px-2 pb-safe lg:hidden" aria-label="Navigation principale">
+        {TABS.slice(0, 2).map(tab)}
         <div className="flex flex-1 justify-center">
           <button
             type="button"
@@ -152,55 +168,45 @@ export function BottomNav() {
             <Plus size={28} strokeWidth={2.4} />
           </button>
         </div>
-        {tab({ href: "/prevision", label: "Prévision", icon: TrendingUp })}
-        {tab({ href: "/budgets", label: "Budgets", icon: Target })}
+        {TABS.slice(2).map(tab)}
+        <button type="button" onClick={() => setMoreOpen(true)} className={tabClass(inMore)} aria-haspopup="dialog" aria-current={inMore ? "page" : undefined}>
+          <Ellipsis size={22} strokeWidth={inMore ? 2.6 : 2.2} />
+          Plus
+        </button>
       </nav>
       <Modal open={entryOpen} onClose={() => setEntryOpen(false)} size="lg">
         <QuickEntryForm variant="sheet" onDone={() => setEntryOpen(false)} />
       </Modal>
-    </>
-  );
-}
-
-/** Bouton ≡ (mobile) ouvrant le menu « Plus ». */
-export function MoreMenu() {
-  const [open, setOpen] = useState(false);
-  const items: NavItem[] = [
-    { href: "/comptes", label: "Comptes", icon: CreditCard },
-    { href: "/analyses", label: "Analyses", icon: ChartColumn },
-    { href: "/recurrences", label: "Récurrences", icon: Repeat },
-    { href: "/categories", label: "Catégories", icon: Tag },
-    { href: "/parametres", label: "Paramètres", icon: Settings },
-  ];
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="absolute top-4 right-3 z-10 flex size-11 items-center justify-center rounded-full text-n-700 hover:bg-n-200 active:bg-n-200 lg:hidden"
-        aria-label="Plus"
-      >
-        <Menu size={22} />
-      </button>
-      <Modal open={open} onClose={() => setOpen(false)}>
-        <nav className="-mx-2 flex flex-col" aria-label="Plus">
-          {items.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setOpen(false)}
-              className="flex min-h-12 items-center gap-3 rounded-lg px-2 font-semibold hover:bg-n-100"
-            >
-              <item.icon size={19} className="text-n-600" />
-              {item.label}
-            </Link>
-          ))}
-          <form action={signOut} className="mt-2 border-t border-divider pt-2">
+      <Modal open={moreOpen} onClose={() => setMoreOpen(false)} title="Plus">
+        <nav className="flex flex-col gap-4 pb-safe" aria-label="Plus">
+          <div className="grid grid-cols-3 gap-2.5">
+            {MORE.map((item) => {
+              const active = isActive(pathname, item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMoreOpen(false)}
+                  aria-current={active ? "page" : undefined}
+                  className={clsx(
+                    "flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl px-1 text-[13px] font-semibold transition-transform duration-100 motion-safe:active:scale-95",
+                    active ? "bg-accent-100 text-accent-700 ring-1 ring-accent-200" : "bg-n-100 text-text",
+                  )}
+                >
+                  <span className="flex size-10 items-center justify-center rounded-[11px] text-white" style={{ backgroundColor: item.color }}>
+                    <item.icon size={21} strokeWidth={2.2} />
+                  </span>
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+          <form action={signOut}>
             <SubmitButton
-              className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 font-semibold text-danger-700 hover:bg-danger-100"
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-n-100 font-semibold text-danger-700"
               pendingChildren="Déconnexion…"
             >
-              <LogOut size={19} />
+              <LogOut size={18} />
               Se déconnecter
             </SubmitButton>
           </form>

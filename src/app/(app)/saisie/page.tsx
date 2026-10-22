@@ -6,7 +6,7 @@ export const metadata = { title: "Saisie" };
 export default function EntryPage() {
   return (
     <>
-      <div className="pr-12 lg:pr-0">
+      <div>
         <PageHeader kicker="Session de saisie" title="Saisir" />
       </div>
       <EntrySession />

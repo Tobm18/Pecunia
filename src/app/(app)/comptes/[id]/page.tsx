@@ -42,7 +42,7 @@ export default async function AccountDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 pr-12 lg:pr-0">
+      <div className="flex flex-col gap-3">
         <Link href="/comptes" className="text-xs font-bold text-accent-700">
           ‹ Tous les comptes
         </Link>
