@@ -1,12 +1,13 @@
 "use client";
 
 import { clsx } from "clsx";
-import { Archive, Pencil, SlidersHorizontal } from "lucide-react";
+import { Archive, Pencil, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
   adjustBalance,
   createAccount,
+  deleteAccount,
   setAccountArchived,
   setAccountInBudget,
   updateAccount,
@@ -259,11 +260,12 @@ export function AccountSettings({ account, balanceCents }: { account: Account; b
   const [pending, startTransition] = useTransition();
   const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [name, setName] = useState(account.name);
   const [icon, setIcon] = useState(account.icon);
   const [color, setColor] = useState(account.color);
   const [error, setError] = useState<string | null>(null);
-  const [action, setAction] = useState<"budget" | "edit" | "archive" | null>(null);
+  const [action, setAction] = useState<"budget" | "edit" | "archive" | "delete" | null>(null);
 
   function run(action: () => Promise<{ ok: boolean; error?: string }>, success: string, after?: () => void) {
     setError(null);
@@ -278,6 +280,14 @@ export function AccountSettings({ account, balanceCents }: { account: Account; b
         toast(success);
         after?.();
       });
+    });
+  }
+
+  function remove() {
+    setAction("delete");
+    run(() => deleteAccount(account.id), "Compte supprimé", () => {
+      setDeleteOpen(false);
+      router.push("/comptes");
     });
   }
 
@@ -318,6 +328,9 @@ export function AccountSettings({ account, balanceCents }: { account: Account; b
         >
           <Archive size={14} /> Archiver
         </Button>
+        <Button variant="ghost" className="col-span-2 text-danger-700! hover:bg-danger-100!" onClick={() => setDeleteOpen(true)} disabled={pending}>
+          <Trash2 size={14} /> Supprimer définitivement
+        </Button>
       </div>
 
       <Modal
@@ -346,6 +359,25 @@ export function AccountSettings({ account, balanceCents }: { account: Account; b
           <IconColorPicker icon={icon} color={color} onIcon={setIcon} onColor={setColor} icons={ACCOUNT_ICONS} />
           <FieldError>{error}</FieldError>
         </div>
+      </Modal>
+
+      <Modal
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title="Supprimer ce compte ?"
+        footer={
+          <>
+            <Button onClick={() => setDeleteOpen(false)}>Annuler</Button>
+            <Button variant="danger" onClick={remove} loading={pending && action === "delete"}>
+              Supprimer
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm">
+          <strong>{account.name}</strong> sera supprimé avec toutes ses transactions, ses récurrences et ses objectifs. Cette action est
+          irréversible ; pour garder l&apos;historique, archive-le plutôt.
+        </p>
       </Modal>
 
       <Modal

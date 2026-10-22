@@ -291,6 +291,25 @@ export async function setAccountArchived(id: string, archived: boolean): Promise
   return ok(undefined);
 }
 
+/**
+ * Supprime définitivement un compte avec ses transactions, prévisions, récurrences et objectifs
+ * (cascade en base). Sert surtout à retirer un doublon ; l'archivage garde l'historique.
+ */
+export async function deleteAccount(id: string): Promise<ActionResult> {
+  if (!uuid.safeParse(id).success) return fail(GENERIC_ERROR);
+  const { user } = await getSession();
+  const accounts = await getAccounts();
+  if (!accounts.some((a) => a.id === id)) return fail("Ce compte n'existe plus.");
+  if (accounts.length <= 1) return fail("Il faut garder au moins un compte.");
+  try {
+    await db.delete(s.accounts).where(and(eq(s.accounts.id, id), eq(s.accounts.user_id, user.id)));
+  } catch {
+    return fail("Suppression impossible, réessaie dans un instant.");
+  }
+  refresh();
+  return ok(undefined);
+}
+
 /** Crée une ligne « Régularisation » pour aligner le solde sur le relevé bancaire. */
 export async function adjustBalance(accountId: string, realAmount: string, today: string): Promise<ActionResult<{ created: boolean }>> {
   if (!uuid.safeParse(accountId).success || !isValidIsoDate(today)) return fail(GENERIC_ERROR);
