@@ -30,6 +30,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.11",
     "@electric-sql/pglite-socket": "^0.2.14",
+    "@neondatabase/serverless": "^1.2.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.20.4",
     "@types/react": "^19.3.0",
