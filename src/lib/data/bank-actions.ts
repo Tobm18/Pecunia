@@ -67,6 +67,7 @@ export async function syncBank(): Promise<ActionResult<{ inserted: number; accou
 const internalInput = z.object({
   accountId: z.string().uuid(),
   identifier: z.string().trim().max(40),
+  keyword: z.string().trim().max(60),
   balance: z.string().trim().max(20),
   balanceDate: z.string().refine((d) => d === "" || isValidIsoDate(d), "Date invalide."),
 });
@@ -78,13 +79,13 @@ const internalInput = z.object({
 export async function saveInternalAccount(input: z.input<typeof internalInput>): Promise<ActionResult<{ converted: number }>> {
   const parsed = internalInput.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Valeurs invalides.");
-  const { accountId, identifier, balance, balanceDate } = parsed.data;
+  const { accountId, identifier, keyword, balance, balanceDate } = parsed.data;
   const balanceCents = balance ? parseAmountToCents(balance) : null;
   if (balance && balanceCents === null) return fail("Solde invalide.");
   if (balanceCents !== null && !balanceDate) return fail("Indique la date de ce solde.");
   if (balanceDate && balanceDate > todayIso()) return fail("La date ne peut pas être dans le futur.");
   const { user } = await getSession();
-  const result = await saveInternal(user.id, { accountId, identifier: identifier || null, balanceCents, balanceDate: balanceCents !== null ? balanceDate : null });
+  const result = await saveInternal(user.id, { accountId, identifier: identifier || null, keyword: keyword || null, balanceCents, balanceDate: balanceCents !== null ? balanceDate : null });
   if (!result.ok) return fail(result.error);
   refresh();
   return ok({ converted: result.converted });

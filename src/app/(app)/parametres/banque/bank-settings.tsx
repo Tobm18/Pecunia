@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 import { deleteAccount } from "@/lib/data/actions";
 import { connectBank, disconnectBank, linkBankAccount, syncBank } from "@/lib/data/bank-actions";
 import type { BankOverview } from "@/lib/data/bank";
+import { shortDate } from "@/lib/domain/dates";
 import { formatCents } from "@/lib/domain/money";
 import { NewAccountButton } from "@/components/accounts/account-dialogs";
 import { Banner, Button, Card, Select } from "@/components/ui/primitives";
@@ -19,6 +20,17 @@ const NEW = "new";
 const longDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 const shortDateTime = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const daysLeft = (iso: string) => Math.ceil((Date.parse(iso) - Date.now()) / 86_400_000);
+
+/** Fin de l'IBAN, solde comptable de la banque (avec sa date d'arrêté) et opérations en cours. */
+function bankAccountHint(a: NonNullable<BankOverview["connection"]>["accounts"][number]): string | undefined {
+  const booked = a.balances.find((b) => b.cents === a.bankBalanceCents);
+  const parts = [
+    a.iban ? `…${a.iban.slice(-4)}` : null,
+    a.bankBalanceCents !== null ? `comptabilisé ${formatCents(a.bankBalanceCents)}${booked?.date ? ` au ${shortDate(booked.date)}` : ""}` : null,
+    a.pending.count ? `${a.pending.count} en cours (${formatCents(a.pending.cents, "always")})` : null,
+  ];
+  return parts.filter(Boolean).join(" · ") || undefined;
+}
 
 /**
  * Banque connectée (Enable Banking, lecture seule) : connexion, liaison de chaque compte bancaire à
@@ -141,7 +153,7 @@ export function BankSettings({ overview, justConnected, authError }: { overview:
               <Row
                 key={a.id}
                 label={a.name ?? "Compte bancaire"}
-                hint={[a.iban ? `…${a.iban.slice(-4)}` : null, a.bankBalanceCents !== null ? formatCents(a.bankBalanceCents) : null].filter(Boolean).join(" · ") || undefined}
+                hint={bankAccountHint(a)}
               >
                 <Select
                   value={a.accountId ?? NONE}

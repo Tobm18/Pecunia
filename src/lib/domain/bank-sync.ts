@@ -2,6 +2,7 @@
  * Connexion bancaire - logique pure : transforme les écritures renvoyées par la banque
  * (format Enable Banking) en lignes Pecunia, et choisit le solde de référence.
  */
+import { normalizeText } from "./csv-import";
 import { parseAmountToCents } from "./money";
 import { isValidIsoDate, type IsoDate } from "./dates";
 
@@ -31,6 +32,8 @@ export interface AccountIdentification {
 export interface BankBalance {
   balance_type: string;
   balance_amount: { amount: string; currency?: string };
+  reference_date?: string | null;
+  last_change_date_time?: string | null;
 }
 
 export interface BankLine {
@@ -72,14 +75,20 @@ export function matchesIdentifier(counterparty: string | null, identifier: strin
   return a === b || a.includes(b) || b.includes(a);
 }
 
-/** Compte interne visé par une ligne (le plus précis si plusieurs correspondent). */
-export function findInternalAccount<T extends { id: string; identifier: string | null }>(counterparty: string | null, accounts: T[]): T | null {
-  let best: T | null = null;
-  for (const a of accounts) {
-    if (!matchesIdentifier(counterparty, a.identifier)) continue;
-    if (!best || normalizeIdentifier(a.identifier)!.length > normalizeIdentifier(best.identifier)!.length) best = a;
-  }
-  return best;
+/**
+ * Compte interne visé par une ligne : d'abord par le compte en face (l'identifiant le plus précis),
+ * à défaut par mot-clé du libellé (le plus long).
+ */
+export function findInternalAccount<T extends { id: string; identifier: string | null; keyword: string | null }>(
+  line: { counterparty: string | null; label: string | null },
+  accounts: T[],
+): T | null {
+  const size = (s: string | null) => (s ?? "").length;
+  const byIdentifier = accounts.filter((a) => matchesIdentifier(line.counterparty, a.identifier));
+  if (byIdentifier.length) return byIdentifier.reduce((best, a) => (size(normalizeIdentifier(a.identifier)) > size(normalizeIdentifier(best.identifier)) ? a : best));
+  const byKeyword = accounts.filter((a) => matchesInternalAccount({ counterparty: null, label: line.label }, { identifier: null, keyword: a.keyword }));
+  if (byKeyword.length) return byKeyword.reduce((best, a) => (size(a.keyword) > size(best.keyword) ? a : best));
+  return null;
 }
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -93,22 +102,29 @@ export function bankLabel(t: BankTransaction): string {
   return label.slice(0, MAX_LABEL);
 }
 
+/** Préfixe des références d'opérations en cours : remplacées en bloc à chaque synchronisation */
+export const PENDING_REF_PREFIX = "pdng:";
+
 /**
- * Écritures de la banque → lignes Pecunia. Seules les écritures comptabilisées sont gardées.
- * Sans référence propre à la banque, la référence est dérivée de la date, du montant et du
- * libellé, numérotée quand plusieurs écritures sont identiques (deux cafés au même prix).
+ * Écritures de la banque → lignes Pecunia. Par défaut, seules les écritures comptabilisées sont
+ * gardées ; avec `pending`, seules les opérations en cours (paiements par carte pas encore
+ * comptabilisés). Sans référence propre à la banque, la référence est dérivée de la date, du
+ * montant et du libellé, numérotée quand plusieurs écritures sont identiques (deux cafés au même
+ * prix). Une opération en cours a toujours une référence dérivée : celle de la banque change
+ * souvent à la comptabilisation, et ces lignes sont de toute façon remplacées à chaque fois.
  */
-export function toBankLines(transactions: BankTransaction[]): BankLine[] {
+export function toBankLines(transactions: BankTransaction[], options: { pending?: boolean } = {}): BankLine[] {
   const seen = new Map<string, number>();
   const lines: BankLine[] = [];
+  const wanted = options.pending ? "PDNG" : "BOOK";
   for (const t of transactions) {
-    if (t.status && t.status !== "BOOK") continue;
+    if (t.status && t.status !== wanted) continue;
     const date = [t.booking_date, t.value_date, t.transaction_date].find((d): d is string => !!d && isValidIsoDate(d.slice(0, 10)))?.slice(0, 10);
     const abs = parseAmountToCents(t.transaction_amount.amount.replace("-", ""));
     if (!date || abs === null || abs === 0) continue;
     const cents = t.credit_debit_indicator === "DBIT" ? -abs : abs;
     const label = bankLabel(t);
-    const own = t.entry_reference || t.transaction_id;
+    const own = options.pending ? null : t.entry_reference || t.transaction_id;
     let ref: string;
     if (own) {
       ref = `id:${own}`;
@@ -116,28 +132,64 @@ export function toBankLines(transactions: BankTransaction[]): BankLine[] {
       const base = `${date}|${cents}|${label}`;
       const n = (seen.get(base) ?? 0) + 1;
       seen.set(base, n);
-      ref = `h:${base}|${n}`;
+      ref = `${options.pending ? PENDING_REF_PREFIX : "h:"}${base}|${n}`;
     }
     lines.push({ ref, date, cents, label: label || "Sans libellé", counterparty: counterpartyOf(t) });
   }
   return lines;
 }
 
-/** Solde comptabilisé de référence : clôture, à défaut intermédiaire, à défaut le premier. */
-export function pickBalanceCents(balances: BankBalance[]): number | null {
-  const preferred = ["CLBD", "ITBD", "XPCD", "OPBD"];
-  const chosen = preferred.map((type) => balances.find((b) => b.balance_type === type)).find(Boolean) ?? balances[0];
-  if (!chosen) return null;
-  return parseAmountToCents(chosen.balance_amount.amount);
+export interface ReferenceBalance {
+  type: string;
+  cents: number;
+  /** Jour auquel le solde est arrêté (null : aujourd'hui) */
+  date: IsoDate | null;
+}
+
+/** Soldes de la banque, lisibles (type, centimes, date de référence). */
+export function readBalances(balances: BankBalance[]): ReferenceBalance[] {
+  return balances.flatMap((b) => {
+    const cents = parseAmountToCents(b.balance_amount.amount);
+    if (cents === null) return [];
+    const date = b.reference_date?.slice(0, 10) ?? b.last_change_date_time?.slice(0, 10) ?? null;
+    return [{ type: b.balance_type, cents, date: date && isValidIsoDate(date) ? date : null }];
+  });
+}
+
+/**
+ * Solde comptabilisé de référence : intermédiaire (le plus récent), à défaut de clôture, à défaut
+ * le premier fourni. Les opérations en cours n'y sont pas : elles s'ajoutent par-dessus.
+ */
+export function pickBookedBalance(balances: BankBalance[]): ReferenceBalance | null {
+  const read = readBalances(balances);
+  return ["ITBD", "CLBD", "XPCD", "OPBD"].map((type) => read.find((b) => b.type === type)).find(Boolean) ?? read[0] ?? null;
 }
 
 /**
  * Solde initial à enregistrer pour que le solde Pecunia (solde initial + toutes les lignes) soit
- * exactement celui de la banque.
+ * exactement celui de la banque, `transactionsSumCents` étant la somme des lignes comptabilisées
+ * jusqu'au jour du solde.
  */
 export function initialBalanceFor(bankBalanceCents: number, transactionsSumCents: number): number {
   return bankBalanceCents - transactionsSumCents;
 }
+
+/**
+ * Une ligne du compte synchronisé vise-t-elle ce compte interne ? Par le compte en face quand la
+ * banque le donne, sinon par un mot-clé du libellé (sans accents ni casse).
+ */
+export function matchesInternalAccount(
+  line: { counterparty: string | null; label: string | null },
+  account: { identifier: string | null; keyword: string | null },
+): boolean {
+  if (matchesIdentifier(line.counterparty, account.identifier)) return true;
+  const keyword = normalizeLabel(account.keyword ?? "");
+  return keyword.length >= MIN_KEYWORD_LENGTH && normalizeLabel(line.label ?? "").includes(keyword);
+}
+
+export const MIN_KEYWORD_LENGTH = 3;
+
+const normalizeLabel = (s: string) => normalizeText(s).replace(/\s+/g, " ");
 
 /**
  * Nom lisible d'un compte bancaire. Le champ « name » de la banque est celui du titulaire : on

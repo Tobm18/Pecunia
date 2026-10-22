@@ -4,7 +4,7 @@
  * passent telles quelles dans data/mappers.ts. Tables d'authentification : clés en
  * camelCase, attendues par l'adaptateur Better Auth.
  */
-import { bigint, boolean, date, integer, numeric, pgEnum, pgTable, pgView, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, date, integer, jsonb, numeric, pgEnum, pgTable, pgView, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 const cents = (name: string) => bigint(name, { mode: "number" });
@@ -145,6 +145,8 @@ export const accounts = pgTable("accounts", {
   archived_at: ts("archived_at"),
   /** Compte interne : IBAN ou numéro reconnu dans les virements du compte synchronisé */
   bank_identifier: text("bank_identifier"),
+  /** Compte interne : mot-clé cherché dans le libellé (quand la banque ne donne pas le compte en face) */
+  transfer_keyword: text("transfer_keyword"),
   /** Solde réel connu à une date ; le solde initial en est déduit */
   reference_balance_cents: cents("reference_balance_cents"),
   reference_balance_date: day("reference_balance_date"),
@@ -269,6 +271,8 @@ export const bankAccounts = pgTable("bank_accounts", {
   account_id: uuid("account_id"),
   synced_until: day("synced_until"),
   bank_balance_cents: cents("bank_balance_cents"),
+  /** Soldes renvoyés par la banque à la dernière synchronisation */
+  bank_balances: jsonb("bank_balances").$type<{ type: string; cents: number; date: string | null }[]>(),
 });
 
 /** Abonnement aux notifications push d'un appareil (Web Push). */

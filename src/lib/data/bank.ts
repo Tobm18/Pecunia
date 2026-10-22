@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, like, lt, lte, notLike, or, sql } from "drizzle-orm";
 import { db, schema as s } from "@/lib/db";
 import { BankApiError, bankName, createSession, deleteSession, getBalances, getTransactions, isBankConfigured } from "@/lib/bank/enable-banking";
 import {
@@ -8,9 +8,14 @@ import {
   guessAccountType,
   initialBalanceFor,
   MIN_IDENTIFIER_LENGTH,
+  MIN_KEYWORD_LENGTH,
   normalizeIdentifier,
-  pickBalanceCents,
+  PENDING_REF_PREFIX,
+  pickBookedBalance,
+  readBalances,
   toBankLines,
+  type BankBalance,
+  type BankLine,
 } from "@/lib/domain/bank-sync";
 import { createCategorizer, INTEREST_PATTERN, normalizeText } from "@/lib/domain/csv-import";
 import { todayIso } from "@/lib/domain/dates";
@@ -26,6 +31,10 @@ const CHUNK = 500;
 /** Marge de recouvrement à chaque synchronisation (écritures comptabilisées avec retard) */
 const OVERLAP_DAYS = 7;
 const LIMITED_HISTORY_DAYS = 90;
+/** Fenêtre des opérations en cours demandées à la banque */
+const PENDING_DAYS = 30;
+/** Note des lignes en cours (pas encore comptabilisées par la banque) */
+const PENDING_NOTE = "En cours : pas encore comptabilisée par la banque";
 
 const shiftDays = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
@@ -199,9 +208,16 @@ async function syncAccount(userId: string, bank: typeof s.bankAccounts.$inferSel
     .where(and(eq(s.accounts.id, bank.account_id!), eq(s.accounts.user_id, userId)));
   if (!account) return 0;
   const lines = await fetchLines(bank.uid, bank.synced_until);
+  // opérations en cours (paiements par carte pas encore comptabilisés) : facultatives, toutes les banques ne les donnent pas
+  const pending = await getTransactions(bank.uid, shiftDays(todayIso(), -PENDING_DAYS), "PDNG")
+    .then((list) => toBankLines(list, { pending: true }))
+    .catch((error) => {
+      if (error instanceof BankApiError && (error.status === 401 || error.status === 403)) throw error;
+      return [];
+    });
 
   const t = s.transactions;
-  const rows = lines.map((l) => {
+  const toRow = (l: BankLine, note: string | null = null) => {
     const interest = l.cents > 0 && account.type === "savings" && INTEREST_PATTERN.test(normalizeText(l.label));
     const type = l.cents < 0 ? ("out" as const) : interest ? ("interest" as const) : ("in" as const);
     return {
@@ -211,10 +227,23 @@ async function syncAccount(userId: string, bank: typeof s.bankAccounts.$inferSel
       amount_cents: l.cents,
       date: l.date,
       place: l.label,
+      note,
       category_id: type === "interest" ? null : categorizer.categoryFor(l.label, l.cents < 0 ? "out" : "in"),
       bank_ref: l.ref,
       bank_counterparty: l.counterparty,
     };
+  };
+  const rows = lines.map((l) => toRow(l));
+
+  // Les opérations en cours sont remplacées en bloc : comptabilisées, elles reviennent avec les autres lignes.
+  await db.transaction(async (tx) => {
+    const isPending = and(eq(t.user_id, userId), eq(t.account_id, account.id), like(t.bank_ref, `${PENDING_REF_PREFIX}%`));
+    // un virement en cours reconnu a sa moitié sur le compte interne : elle part avec lui
+    const pendingTransfers = await tx.select({ id: t.transfer_id }).from(t).where(and(isPending, isNotNull(t.transfer_id)));
+    const transferIds = pendingTransfers.map((p) => p.id!).filter(Boolean);
+    if (transferIds.length) await tx.delete(t).where(and(eq(t.user_id, userId), inArray(t.transfer_id, transferIds)));
+    await tx.delete(t).where(isPending);
+    if (pending.length) await tx.insert(t).values(pending.map((l) => toRow(l, PENDING_NOTE)));
   });
   let inserted = 0;
   for (let i = 0; i < rows.length; i += CHUNK) {
@@ -232,29 +261,42 @@ async function syncAccount(userId: string, bank: typeof s.bankAccounts.$inferSel
   }
 
   // Le solde de Pecunia suit celui de la banque : le solde initial absorbe l'historique non récupéré.
-  let bankBalance: number | null = null;
+  // Le solde comptable est arrêté à une date : seules les lignes comptabilisées jusque-là y sont, les
+  // suivantes et les opérations en cours s'ajoutent par-dessus.
+  let rawBalances: BankBalance[] = [];
   try {
-    bankBalance = pickBalanceCents(await getBalances(bank.uid));
+    rawBalances = await getBalances(bank.uid);
   } catch (error) {
     if (error instanceof BankApiError && (error.status === 401 || error.status === 403)) throw error;
   }
-  if (bankBalance !== null) {
+  const booked = pickBookedBalance(rawBalances);
+  if (booked) {
     const [sum] = await db
       .select({ total: sql<string>`coalesce(sum(${t.amount_cents}), 0)`, first: sql<string | null>`min(${t.date})` })
       .from(t)
-      .where(and(eq(t.account_id, account.id), eq(t.user_id, userId)));
+      .where(
+        and(
+          eq(t.account_id, account.id),
+          eq(t.user_id, userId),
+          or(isNull(t.bank_ref), notLike(t.bank_ref, `${PENDING_REF_PREFIX}%`)),
+          booked.date ? lte(t.date, booked.date) : undefined,
+        ),
+      );
     const first = sum?.first;
     await db
       .update(s.accounts)
       .set({
-        initial_balance_cents: initialBalanceFor(bankBalance, Number(sum?.total ?? 0)),
+        initial_balance_cents: initialBalanceFor(booked.cents, Number(sum?.total ?? 0)),
         // le solde initial précède la première ligne
         ...(first && first < account.initial_balance_date ? { initial_balance_date: first } : {}),
       })
       .where(eq(s.accounts.id, account.id));
   }
-  await db.update(s.bankAccounts).set({ synced_until: todayIso(), bank_balance_cents: bankBalance }).where(eq(s.bankAccounts.id, bank.id));
-  return inserted;
+  await db
+    .update(s.bankAccounts)
+    .set({ synced_until: todayIso(), bank_balance_cents: booked?.cents ?? null, bank_balances: readBalances(rawBalances) })
+    .where(eq(s.bankAccounts.id, bank.id));
+  return inserted + pending.length;
 }
 
 /** Synchronise les comptes reliés d'une connexion. Enregistre l'état (dernière synchro, erreur). */
@@ -303,9 +345,9 @@ export async function syncConnection(userId: string, connectionId: string): Prom
 async function internalAccounts(userId: string) {
   const [accounts, synced] = await Promise.all([
     db
-      .select({ id: s.accounts.id, identifier: s.accounts.bank_identifier })
+      .select({ id: s.accounts.id, identifier: s.accounts.bank_identifier, keyword: s.accounts.transfer_keyword })
       .from(s.accounts)
-      .where(and(eq(s.accounts.user_id, userId), isNotNull(s.accounts.bank_identifier))),
+      .where(and(eq(s.accounts.user_id, userId), or(isNotNull(s.accounts.bank_identifier), isNotNull(s.accounts.transfer_keyword)))),
     db
       .select({ id: s.bankAccounts.account_id })
       .from(s.bankAccounts)
@@ -316,9 +358,10 @@ async function internalAccounts(userId: string) {
 }
 
 /**
- * Lignes bancaires dont le compte en face est un compte interne → virements entre les deux
- * comptes Pecunia : la ligne du compte synchronisé devient la moitié « transfer » et l'autre
- * moitié est créée sur le compte interne. Une ligne déjà convertie n'est jamais retouchée.
+ * Lignes bancaires visant un compte interne (compte en face, à défaut mot-clé du libellé) →
+ * virements entre les deux comptes Pecunia : la ligne du compte synchronisé devient la moitié
+ * « transfer » et l'autre moitié est créée sur le compte interne. Une ligne déjà convertie n'est
+ * jamais retouchée (une opération en cours convertie est remplacée avec sa moitié à la synchro suivante).
  */
 async function applyInternalTransfers(userId: string): Promise<number> {
   const internal = await internalAccounts(userId);
@@ -327,10 +370,10 @@ async function applyInternalTransfers(userId: string): Promise<number> {
   const candidates = await db
     .select()
     .from(t)
-    .where(and(eq(t.user_id, userId), isNotNull(t.bank_counterparty), isNull(t.transfer_id), inArray(t.type, ["in", "out"])));
+    .where(and(eq(t.user_id, userId), isNotNull(t.bank_ref), isNull(t.transfer_id), inArray(t.type, ["in", "out"])));
   let converted = 0;
   for (const row of candidates) {
-    const target = findInternalAccount(row.bank_counterparty, internal);
+    const target = findInternalAccount({ counterparty: row.bank_counterparty, label: row.place }, internal);
     if (!target || target.id === row.account_id) continue;
     const transferId = crypto.randomUUID();
     await db.transaction(async (tx) => {
@@ -394,10 +437,12 @@ export async function refreshInternalAccounts(userId: string): Promise<{ convert
 /** Réglages d'un compte interne : identifiant reconnu dans les virements, solde réel connu. */
 export async function saveInternalAccount(
   userId: string,
-  input: { accountId: string; identifier: string | null; balanceCents: number | null; balanceDate: string | null },
+  input: { accountId: string; identifier: string | null; keyword: string | null; balanceCents: number | null; balanceDate: string | null },
 ): Promise<{ ok: true; converted: number } | { ok: false; error: string }> {
   const identifier = normalizeIdentifier(input.identifier);
   if (identifier && identifier.length < MIN_IDENTIFIER_LENGTH) return { ok: false, error: `L'identifiant doit faire au moins ${MIN_IDENTIFIER_LENGTH} caractères.` };
+  const keyword = input.keyword?.replace(/\s+/g, " ").trim() || null;
+  if (keyword && keyword.length < MIN_KEYWORD_LENGTH) return { ok: false, error: `Le mot-clé doit faire au moins ${MIN_KEYWORD_LENGTH} caractères.` };
   const [account] = await db
     .select({ id: s.accounts.id })
     .from(s.accounts)
@@ -408,6 +453,7 @@ export async function saveInternalAccount(
     .update(s.accounts)
     .set({
       bank_identifier: identifier,
+      transfer_keyword: keyword,
       reference_balance_cents: withBalance ? input.balanceCents : null,
       reference_balance_date: withBalance ? input.balanceDate : null,
     })
@@ -459,7 +505,17 @@ export interface BankOverview {
     validUntil: string | null;
     lastSyncAt: string | null;
     lastError: string | null;
-    accounts: { id: string; name: string | null; iban: string | null; accountId: string | null; bankBalanceCents: number | null }[];
+    accounts: {
+      id: string;
+      name: string | null;
+      iban: string | null;
+      accountId: string | null;
+      bankBalanceCents: number | null;
+      /** Soldes renvoyés par la banque (type, montant, date d'arrêté) */
+      balances: { type: string; cents: number; date: string | null }[];
+      /** Opérations en cours importées (pas encore comptabilisées) */
+      pending: { count: number; cents: number };
+    }[];
   } | null;
   /** Comptes Pecunia (y compris archivés), avec leur solde et leurs réglages de compte interne */
   accounts: {
@@ -469,6 +525,7 @@ export interface BankOverview {
     archived: boolean;
     balanceCents: number;
     identifier: string | null;
+    keyword: string | null;
     referenceBalanceCents: number | null;
     referenceBalanceDate: string | null;
   }[];
@@ -485,7 +542,7 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
     .orderBy(desc(c.created_at))
     .limit(1);
   const t = s.transactions;
-  const [accounts, bankAccounts, counterparties] = await Promise.all([
+  const [accounts, bankAccounts, counterparties, pendingRows] = await Promise.all([
     db
       .select({
         id: s.accounts.id,
@@ -493,6 +550,7 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
         type: s.accounts.type,
         archived_at: s.accounts.archived_at,
         bank_identifier: s.accounts.bank_identifier,
+        transfer_keyword: s.accounts.transfer_keyword,
         reference_balance_cents: s.accounts.reference_balance_cents,
         reference_balance_date: s.accounts.reference_balance_date,
         balance: s.accountBalances.balance_cents,
@@ -514,7 +572,13 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
       .groupBy(t.bank_counterparty)
       .orderBy(desc(sql`count(*)`))
       .limit(12),
+    db
+      .select({ accountId: t.account_id, count: sql<number>`count(*)::int`, total: sql<string>`coalesce(sum(${t.amount_cents}), 0)` })
+      .from(t)
+      .where(and(eq(t.user_id, userId), like(t.bank_ref, `${PENDING_REF_PREFIX}%`)))
+      .groupBy(t.account_id),
   ]);
+  const pendingByAccount = new Map(pendingRows.map((p) => [p.accountId, { count: Number(p.count), cents: Number(p.total) }]));
   const ownIbans = new Set(bankAccounts.map((b) => normalizeIdentifier(b.iban)).filter(Boolean));
   return {
     configured: isBankConfigured(),
@@ -532,6 +596,8 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
             iban: b.iban,
             accountId: b.account_id,
             bankBalanceCents: b.bank_balance_cents === null ? null : Number(b.bank_balance_cents),
+            balances: b.bank_balances ?? [],
+            pending: (b.account_id && pendingByAccount.get(b.account_id)) || { count: 0, cents: 0 },
           })),
         }
       : null,
@@ -542,6 +608,7 @@ export async function getBankOverview(userId: string): Promise<BankOverview> {
       archived: !!a.archived_at,
       balanceCents: Number(a.balance ?? 0),
       identifier: a.bank_identifier,
+      keyword: a.transfer_keyword,
       referenceBalanceCents: a.reference_balance_cents === null ? null : Number(a.reference_balance_cents),
       referenceBalanceDate: a.reference_balance_date,
     })),

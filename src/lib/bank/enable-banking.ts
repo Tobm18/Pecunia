@@ -125,14 +125,15 @@ export async function getBalances(uid: string): Promise<BankBalance[]> {
 }
 
 /**
- * Toutes les écritures comptabilisées depuis `dateFrom` (pagination suivie). Sans date, Enable
- * Banking cherche la plus longue période que la banque accepte de fournir (stratégie « longest »).
+ * Toutes les écritures comptabilisées (ou en cours, avec `PDNG`) depuis `dateFrom`, pagination
+ * suivie. Sans date, Enable Banking cherche la plus longue période que la banque accepte de
+ * fournir (stratégie « longest »).
  */
-export async function getTransactions(uid: string, dateFrom: string | null): Promise<BankTransaction[]> {
+export async function getTransactions(uid: string, dateFrom: string | null, status: "BOOK" | "PDNG" = "BOOK"): Promise<BankTransaction[]> {
   const out: BankTransaction[] = [];
   let continuationKey: string | undefined;
   for (let page = 0; page < 40; page++) {
-    const query = new URLSearchParams({ transaction_status: "BOOK" });
+    const query = new URLSearchParams({ transaction_status: status });
     if (dateFrom) query.set("date_from", dateFrom);
     else query.set("strategy", "longest");
     if (continuationKey) query.set("continuation_key", continuationKey);

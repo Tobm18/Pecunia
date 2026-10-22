@@ -7,7 +7,9 @@ import {
   initialBalanceFor,
   interestReminder,
   matchesIdentifier,
-  pickBalanceCents,
+  matchesInternalAccount,
+  PENDING_REF_PREFIX,
+  pickBookedBalance,
   toBankLines,
   type BankTransaction,
 } from "./bank-sync";
@@ -56,15 +58,31 @@ describe("toBankLines", () => {
   });
 });
 
-describe("pickBalanceCents", () => {
-  it("préfère le solde de clôture", () => {
+describe("opérations en cours", () => {
+  it("ne garde que les écritures en cours, avec une référence dérivée", () => {
+    const lines = toBankLines([tx(), tx({ entry_reference: "p-1", status: "PDNG", booking_date: null, transaction_date: "2026-10-22" })], { pending: true });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.ref.startsWith(PENDING_REF_PREFIX)).toBe(true);
+    expect(lines[0]!.date).toBe("2026-10-22");
+  });
+  it("les écritures en cours sont exclues par défaut", () => {
+    expect(toBankLines([tx({ status: "PDNG" })])).toEqual([]);
+  });
+});
+
+describe("pickBookedBalance", () => {
+  it("préfère le solde comptable intermédiaire, avec sa date", () => {
     const balances = [
       { balance_type: "ITAV", balance_amount: { amount: "1.00" } },
-      { balance_type: "CLBD", balance_amount: { amount: "1234.56" } },
+      { balance_type: "CLBD", balance_amount: { amount: "1234.56" }, reference_date: "2026-10-20" },
+      { balance_type: "ITBD", balance_amount: { amount: "1200.00" }, reference_date: "2026-10-22" },
     ];
-    expect(pickBalanceCents(balances)).toBe(123456);
+    expect(pickBookedBalance(balances)).toEqual({ type: "ITBD", cents: 120000, date: "2026-10-22" });
   });
-  it("renvoie null sans solde", () => expect(pickBalanceCents([])).toBeNull());
+  it("à défaut, le solde de clôture", () => {
+    expect(pickBookedBalance([{ balance_type: "CLBD", balance_amount: { amount: "-5.10" } }])).toEqual({ type: "CLBD", cents: -510, date: null });
+  });
+  it("renvoie null sans solde", () => expect(pickBookedBalance([])).toBeNull());
 });
 
 describe("initialBalanceFor", () => {
@@ -95,11 +113,22 @@ describe("compte en face", () => {
 
   it("choisit l'identifiant le plus précis", () => {
     const accounts = [
-      { id: "court", identifier: "10707" },
-      { id: "long", identifier: "12345678901" },
+      { id: "court", identifier: "10707", keyword: null },
+      { id: "long", identifier: "12345678901", keyword: null },
     ];
-    expect(findInternalAccount("FR7610707000001234567890123", accounts)?.id).toBe("long");
-    expect(findInternalAccount("FR76000", accounts)).toBeNull();
+    expect(findInternalAccount({ counterparty: "FR7610707000001234567890123", label: null }, accounts)?.id).toBe("long");
+    expect(findInternalAccount({ counterparty: "FR76000", label: null }, accounts)).toBeNull();
+  });
+
+  it("à défaut du compte en face, reconnaît le mot-clé du libellé", () => {
+    const accounts = [
+      { id: "livretA", identifier: null, keyword: "livret a" },
+      { id: "ljr", identifier: null, keyword: "Livret Jeune" },
+    ];
+    expect(findInternalAccount({ counterparty: null, label: "VIR M TOM BALLESTER Vir. vers Livret A" }, accounts)?.id).toBe("livretA");
+    expect(findInternalAccount({ counterparty: null, label: "VIR vers LIVRET JEUNE" }, accounts)?.id).toBe("ljr");
+    expect(findInternalAccount({ counterparty: null, label: "CB CARREFOUR" }, accounts)).toBeNull();
+    expect(matchesInternalAccount({ counterparty: null, label: "ab" }, { identifier: null, keyword: "ab" })).toBe(false);
   });
 });
 
