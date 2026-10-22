@@ -59,10 +59,10 @@ function InternalAccountForm({ account }: { account: PecuniaAccount }) {
             id={`kwin-${account.id}`}
             value={keywordIn}
             onChange={(e) => setKeywordIn(e.target.value)}
-            placeholder="vers Compte Du Personnel"
+            placeholder="0730133"
             autoComplete="off"
           />
-          <p className="mt-1 text-[11px] text-n-600">Mot du libellé côté compte courant (crédit)</p>
+          <p className="mt-1 text-[11px] text-n-600">Code de fin de référence bancaire, ou mot du libellé (crédit)</p>
         </div>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[2fr_1fr_1fr]">

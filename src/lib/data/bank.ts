@@ -400,7 +400,7 @@ async function applyInternalTransfers(userId: string): Promise<number> {
     .where(and(eq(t.user_id, userId), isNotNull(t.bank_ref), isNull(t.transfer_id), inArray(t.type, ["in", "out"])));
   let converted = 0;
   for (const row of candidates) {
-    const target = findInternalAccount({ counterparty: row.bank_counterparty, label: row.place, cents: Number(row.amount_cents) }, internal);
+    const target = findInternalAccount({ counterparty: row.bank_counterparty, label: row.place, cents: Number(row.amount_cents), ref: row.bank_ref }, internal);
     if (!target || target.id === row.account_id) continue;
     const transferId = crypto.randomUUID();
     await db.transaction(async (tx) => {

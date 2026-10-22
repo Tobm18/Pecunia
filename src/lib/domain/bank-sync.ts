@@ -76,14 +76,29 @@ export function matchesIdentifier(counterparty: string | null, identifier: strin
 }
 
 /**
+ * La référence de l'écriture se termine-t-elle par ce code ? Banque Populaire termine la référence
+ * d'un virement interne reçu par un code propre au compte d'origine (« …BD27-0730133 »).
+ */
+export function refEndsWithCode(ref: string | null, code: string | null): boolean {
+  const c = (code ?? "").trim().toUpperCase();
+  if (c.length < MIN_KEYWORD_LENGTH || /\s/.test(c) || !ref) return false;
+  return ref.toUpperCase().endsWith(`-${c}`);
+}
+
+/**
  * Compte interne visé par une ligne : d'abord par le compte en face (l'identifiant le plus précis),
  * à défaut par mot-clé du libellé (le plus long). Le mot-clé « reçus » (keywordIn) ne s'applique
- * qu'aux lignes créditrices : un virement reçu d'un livret nomme la destination, pas la source.
+ * qu'aux lignes créditrices : un virement reçu d'un livret nomme la destination, pas la source. Il
+ * reconnaît aussi le code qui termine la référence bancaire de ces virements.
  */
 export function findInternalAccount<T extends { id: string; identifier: string | null; keyword: string | null; keywordIn?: string | null }>(
-  line: { counterparty: string | null; label: string | null; cents: number },
+  line: { counterparty: string | null; label: string | null; cents: number; ref?: string | null },
   accounts: T[],
 ): T | null {
+  if (line.cents > 0) {
+    const byCode = accounts.find((a) => refEndsWithCode(line.ref ?? null, a.keywordIn ?? null));
+    if (byCode) return byCode;
+  }
   const size = (s: string | null) => (s ?? "").length;
   const byIdentifier = accounts.filter((a) => matchesIdentifier(line.counterparty, a.identifier));
   if (byIdentifier.length) return byIdentifier.reduce((best, a) => (size(normalizeIdentifier(a.identifier)) > size(normalizeIdentifier(best.identifier)) ? a : best));
@@ -135,15 +150,16 @@ export function toBankLines(transactions: BankTransaction[], options: { pending?
     if (!date || abs === null || abs === 0) continue;
     const cents = t.credit_debit_indicator === "DBIT" ? -abs : abs;
     const label = bankLabel(t);
-    const own = options.pending ? null : t.entry_reference || t.transaction_id;
+    const bankRef = t.entry_reference || t.transaction_id;
     let ref: string;
-    if (own) {
-      ref = `id:${own}`;
+    if (bankRef && !options.pending) {
+      ref = `id:${bankRef}`;
     } else {
       const base = `${date}|${cents}|${label}`;
       const n = (seen.get(base) ?? 0) + 1;
       seen.set(base, n);
-      ref = `${options.pending ? PENDING_REF_PREFIX : "h:"}${base}|${n}`;
+      // une opération en cours garde la référence de la banque en fin : son code d'origine reste lisible
+      ref = `${options.pending ? PENDING_REF_PREFIX : "h:"}${base}|${n}${bankRef ? `|${bankRef}` : ""}`;
     }
     lines.push({ ref, date, cents, label: label || "Sans libellé", counterparty: counterpartyOf(t) });
   }

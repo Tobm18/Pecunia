@@ -10,6 +10,7 @@ import {
   matchesInternalAccount,
   PENDING_REF_PREFIX,
   pickBookedBalance,
+  refEndsWithCode,
   toBankLines,
   type BankTransaction,
 } from "./bank-sync";
@@ -129,6 +130,17 @@ describe("compte en face", () => {
     expect(findInternalAccount({ counterparty: null, label: "VIR vers LIVRET JEUNE", cents: -1000 }, accounts)?.id).toBe("ljr");
     expect(findInternalAccount({ counterparty: null, label: "CB CARREFOUR", cents: -1000 }, accounts)).toBeNull();
     expect(matchesInternalAccount({ counterparty: null, label: "ab" }, { identifier: null, keyword: "ab" })).toBe(false);
+  });
+
+  it("virement reçu : reconnu par le code qui termine la référence bancaire", () => {
+    const accounts = [{ id: "livretA", identifier: null, keyword: "Livret A", keywordIn: "0730133" }];
+    const label = "VIR M TOM BALLESTER Virement vers Compte Du Personne";
+    expect(findInternalAccount({ counterparty: null, label, cents: 15000, ref: "id:202601000048BD27-0730133" }, accounts)?.id).toBe("livretA");
+    expect(findInternalAccount({ counterparty: null, label, cents: 15000, ref: "id:202601000048BD27-0730134" }, accounts)).toBeNull();
+    expect(findInternalAccount({ counterparty: null, label, cents: -15000, ref: "id:202601000048BD27-0730133" }, accounts)).toBeNull();
+    // opération en cours : la référence de la banque est gardée en fin de référence Pecunia
+    const [pending] = toBankLines([tx({ status: "PDNG", entry_reference: "02754BD2C-0730133", credit_debit_indicator: "CRDT" })], { pending: true });
+    expect(refEndsWithCode(pending!.ref, "0730133")).toBe(true);
   });
 
   it("virement reçu : le mot-clé « reçus » ne vaut que pour les crédits", () => {
