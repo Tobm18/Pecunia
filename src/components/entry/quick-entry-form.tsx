@@ -528,7 +528,15 @@ export function QuickEntryForm({
 
       <FieldError>{error}</FieldError>
 
-      <div className={clsx("flex items-center gap-3", isSheet ? "sticky bottom-0 -mx-5 border-t border-divider bg-surface px-5 pt-3" : "border-t border-divider pt-4")}>
+      {/* en feuille : recouvre la marge du bas, boutons au-dessus de l'indicateur d'accueil, fond jusqu'au bord */}
+      <div
+        className={clsx(
+          "flex items-center gap-3",
+          isSheet
+            ? "sticky bottom-0 -mx-5 -mb-[calc(1.25rem+env(safe-area-inset-bottom))] border-t border-divider bg-surface px-5 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] md:-mb-5 md:pb-4"
+            : "border-t border-divider pt-4",
+        )}
+      >
         <button
           type="submit"
           disabled={pending}

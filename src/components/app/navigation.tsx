@@ -178,7 +178,7 @@ export function BottomNav() {
         <QuickEntryForm variant="sheet" onDone={() => setEntryOpen(false)} />
       </Modal>
       <Modal open={moreOpen} onClose={() => setMoreOpen(false)} title="Plus">
-        <nav className="flex flex-col gap-4 pb-safe" aria-label="Plus">
+        <nav className="flex flex-col gap-4" aria-label="Plus">
           <div className="grid grid-cols-3 gap-2.5">
             {MORE.map((item) => {
               const active = isActive(pathname, item.href);

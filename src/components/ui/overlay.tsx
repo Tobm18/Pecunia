@@ -222,8 +222,20 @@ export function Modal({
             </button>
           </div>
         )}
-        <div className="overflow-y-auto overscroll-contain px-5 py-4">{shownChildren}</div>
-        {shownFooter && <div className="flex justify-end gap-2 border-t border-divider px-5 py-3 pb-safe">{shownFooter}</div>}
+        {/* marge du bas = espace normal + zone de l'indicateur d'accueil (iPhone), jamais l'un à la place de l'autre */}
+        <div
+          className={clsx(
+            "overflow-y-auto overscroll-contain px-5 pt-4",
+            shownFooter ? "pb-4" : "pb-[calc(1.25rem+env(safe-area-inset-bottom))] md:pb-5",
+          )}
+        >
+          {shownChildren}
+        </div>
+        {shownFooter && (
+          <div className="flex justify-end gap-2 border-t border-divider px-5 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] md:pb-4">
+            {shownFooter}
+          </div>
+        )}
       </div>
     </div>
   );
