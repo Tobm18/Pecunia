@@ -165,7 +165,7 @@ export function PasskeySettings({ passkeys }: { passkeys: PasskeyInfo[] }) {
               Annuler
             </Button>
             <Button variant="primary" type="submit" form="passkey-name" loading={busy}>
-              {sheet?.mode === "rename" ? "Enregistrer" : "Créer avec Face ID"}
+              {sheet?.mode === "rename" ? "Enregistrer" : "Ajouter la passkey"}
             </Button>
           </>
         }
