@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useEffect, useState, type FormEvent } from "react";
+import { authClient } from "@/lib/auth-client";
 import { Button, FieldError, Input, Label, buttonClass } from "@/components/ui/primitives";
 import { AuthShell } from "../../auth-shell";
 
@@ -17,28 +17,36 @@ export default function ResetPasswordPage() {
   const [expired, setExpired] = useState(false);
   const [pending, setPending] = useState(false);
 
+  // Le lien de l'email arrive ici avec ?token=… (ou ?error=INVALID_TOKEN s'il a expiré)
+  const token = () => new URLSearchParams(window.location.search).get("token");
+  useEffect(() => {
+    if (!token()) setExpired(true);
+  }, []);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (password.length < MIN_LENGTH) return setError(`Au moins ${MIN_LENGTH} caractères.`);
     if (password !== confirm) return setError("Les deux mots de passe ne correspondent pas.");
     setPending(true);
+    const resetToken = token();
+    if (!resetToken) {
+      setPending(false);
+      return setExpired(true);
+    }
     try {
-      const supabase = createClient();
-      const { data } = await supabase.auth.getUser();
-      if (!data.user) {
+      const { error: resetError } = await authClient.resetPassword({ newPassword: password, token: resetToken });
+      if (resetError) {
         setPending(false);
-        return setExpired(true);
+        if (resetError.code === "INVALID_TOKEN") return setExpired(true);
+        return setError("Impossible de changer le mot de passe, réessaie dans un instant.");
       }
-      const { error: updateError } = await supabase.auth.updateUser({ password });
-      if (updateError) throw updateError;
     } catch {
       setPending(false);
       return setError("Impossible de changer le mot de passe, réessaie dans un instant.");
     }
-    // le spinner reste affiché jusqu'à l'arrivée sur le tableau de bord
-    router.replace("/");
-    router.refresh();
+    // les sessions sont révoquées au changement de mot de passe : retour à la connexion
+    router.replace("/login?reinitialise=1");
   }
 
   if (expired) {

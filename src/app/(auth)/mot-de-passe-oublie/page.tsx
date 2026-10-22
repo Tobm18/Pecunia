@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { authClient } from "@/lib/auth-client";
 import { Banner, Button, FieldError, Input, Label } from "@/components/ui/primitives";
 import { AuthShell } from "../auth-shell";
 
@@ -18,9 +18,7 @@ export default function ForgotPasswordPage() {
     if (!email.trim()) return setError("Ce champ est obligatoire");
     setPending(true);
     try {
-      await createClient().auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/auth/callback?next=/auth/reinitialiser`,
-      });
+      await authClient.requestPasswordReset({ email: email.trim(), redirectTo: "/auth/reinitialiser" });
     } catch {
       // Confirmation affichée même en cas d'échec : ne pas exposer l'existence d'un compte.
     } finally {

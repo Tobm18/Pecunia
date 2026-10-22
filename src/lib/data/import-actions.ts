@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import { db, schema as s } from "@/lib/db";
 import { dedupeKey, type ExistingLine, type ImportItem } from "@/lib/domain/csv-import";
 import { isValidIsoDate } from "@/lib/domain/dates";
 import type { Transaction } from "@/lib/domain/types";
@@ -105,7 +107,8 @@ export async function importTransactions(input: ImportPayload): Promise<ImportRe
   if (!parsed.success) return { ok: false, error: "Le fichier contient des valeurs inattendues. Vérifie la correspondance des colonnes." };
   const { items, openingBalances } = parsed.data as ImportPayload;
 
-  const { supabase, user } = await getSession();
+  const { user } = await getSession();
+  const t = s.transactions;
   const [accounts, categories] = await Promise.all([getAccounts(), getCategories()]);
   const activeAccounts = new Set(accounts.filter((a) => !a.archivedAt).map((a) => a.id));
   const knownCategories = new Set(categories.map((c) => c.id));
@@ -126,9 +129,11 @@ export async function importTransactions(input: ImportPayload): Promise<ImportRe
   if (new Set(linkIds).size !== linkIds.length) return { ok: false, error: "Une même ligne est reliée à deux virements. Recharge la page." };
   const linked = new Map<string, Transaction>();
   for (let i = 0; i < linkIds.length; i += 200) {
-    const { data, error } = await supabase.from("transactions").select("*").in("id", linkIds.slice(i, i + 200));
-    if (error) return { ok: false, error: "Import impossible, réessaie dans un instant." };
-    for (const r of data) linked.set(r.id as string, toTransaction(r));
+    const data = await db
+      .select()
+      .from(t)
+      .where(and(eq(t.user_id, user.id), inArray(t.id, linkIds.slice(i, i + 200))));
+    for (const r of data) linked.set(r.id, toTransaction(r));
   }
   for (const item of items) {
     if (item.kind !== "transfer" || !item.linkId) continue;
@@ -179,41 +184,34 @@ export async function importTransactions(input: ImportPayload): Promise<ImportRe
     if (link) conversions.push({ id: link.id, transferId, counterpartAccountId: itemRows[0]!.accountId });
   }
 
-  let insertedRows = 0;
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK);
-    const { error } = await supabase.from("transactions").insert(chunk.map((r) => transactionToRow(r, user.id)));
-    if (error) {
-      revalidatePath("/", "layout");
-      return {
-        ok: false,
-        error:
-          insertedRows > 0
-            ? "Import interrompu en cours de route. Relance-le : les lignes déjà importées seront ignorées."
-            : "Import impossible, réessaie dans un instant.",
-      };
-    }
-    insertedRows += chunk.length;
-  }
-
+  // Tout ou rien : une erreur en cours de route annule l'import entier.
   let converted = 0;
-  for (const c of conversions) {
-    const { error } = await supabase
-      .from("transactions")
-      .update({ type: "transfer", transfer_id: c.transferId, counterpart_account_id: c.counterpartAccountId, category_id: null })
-      .eq("id", c.id)
-      .is("transfer_id", null);
-    if (!error) converted++;
-  }
-
   let balancesUpdated = 0;
-  for (const b of openingBalances) {
-    if (!activeAccounts.has(b.accountId)) continue;
-    const { error } = await supabase
-      .from("accounts")
-      .update({ initial_balance_cents: b.cents, initial_balance_date: b.date })
-      .eq("id", b.accountId);
-    if (!error) balancesUpdated++;
+  try {
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        await tx.insert(t).values(rows.slice(i, i + CHUNK).map((r) => transactionToRow(r, user.id)));
+      }
+      for (const c of conversions) {
+        const updated = await tx
+          .update(t)
+          .set({ type: "transfer", transfer_id: c.transferId, counterpart_account_id: c.counterpartAccountId, category_id: null })
+          .where(and(eq(t.id, c.id), eq(t.user_id, user.id), isNull(t.transfer_id)))
+          .returning({ id: t.id });
+        converted += updated.length;
+      }
+      for (const b of openingBalances) {
+        if (!activeAccounts.has(b.accountId)) continue;
+        const updated = await tx
+          .update(s.accounts)
+          .set({ initial_balance_cents: b.cents, initial_balance_date: b.date })
+          .where(and(eq(s.accounts.id, b.accountId), eq(s.accounts.user_id, user.id)))
+          .returning({ id: s.accounts.id });
+        balancesUpdated += updated.length;
+      }
+    });
+  } catch {
+    return { ok: false, error: "Import impossible, réessaie dans un instant. Aucune ligne n'a été enregistrée." };
   }
 
   revalidatePath("/", "layout");

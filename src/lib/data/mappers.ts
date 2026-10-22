@@ -3,6 +3,8 @@ import type { Account, Budget, Category, ForecastDecision, ForecastItem, Goal, P
 
 // bigint Postgres → number JS : sûr jusqu'à 2^53 centimes (~90 000 milliards d'euros)
 const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
+// timestamptz lu en Date → chaîne ISO (sérialisable vers les composants clients)
+const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : ((v as string | null | undefined) ?? null));
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
@@ -17,7 +19,7 @@ export const toAccount = (r: Row): Account => ({
   icon: r.icon,
   inBudget: r.in_budget,
   sortOrder: r.sort_order,
-  archivedAt: r.archived_at,
+  archivedAt: iso(r.archived_at),
 });
 
 export const toCategory = (r: Row): Category => ({
@@ -28,7 +30,7 @@ export const toCategory = (r: Row): Category => ({
   isIncome: r.is_income,
   restrictedAccountIds: r.restricted_account_ids ?? [],
   sortOrder: r.sort_order,
-  archivedAt: r.archived_at,
+  archivedAt: iso(r.archived_at),
 });
 
 export const toBudget = (r: Row): Budget => ({
@@ -51,7 +53,7 @@ export const toTransaction = (r: Row): Transaction => ({
   counterpartAccountId: r.counterpart_account_id,
   transferId: r.transfer_id,
   recurrenceId: r.recurrence_id,
-  createdAt: r.created_at,
+  createdAt: iso(r.created_at) ?? "",
 });
 
 export const toProfile = (r: Row): Profile => ({
@@ -63,7 +65,7 @@ export const toProfile = (r: Row): Profile => ({
   theme: r.theme,
   referenceIncomeCents: num(r.reference_income_cents),
   budgetCarryOver: r.budget_carry_over,
-  lastBackupAt: r.last_backup_at,
+  lastBackupAt: iso(r.last_backup_at),
 });
 
 export const toPlaceMemory = (r: Row): PlaceMemoryEntry => ({

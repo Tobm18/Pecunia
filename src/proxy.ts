@@ -1,50 +1,34 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { getSessionCookie } from "better-auth/cookies";
+import { auth } from "@/lib/auth";
 
 /** Pages accessibles sans session */
-const PUBLIC_PATHS = ["/login", "/inscription", "/mot-de-passe-oublie", "/auth"];
+const PUBLIC_PATHS = ["/login", "/inscription", "/mot-de-passe-oublie", "/auth", "/api/auth"];
 
 export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          for (const { name, value } of cookiesToSet) request.cookies.set(name, value);
-          response = NextResponse.next({ request });
-          for (const { name, value, options } of cookiesToSet) response.cookies.set(name, value, options);
-        },
-      },
-    },
-  );
-
-  // Rafraîchit la session ; ne rien exécuter entre la création du client et cet appel.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   const path = request.nextUrl.pathname;
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
+  // Vérification optimiste (présence du cookie) : la session est validée en base par
+  // getSession() dans chaque page et chaque action.
+  const hasCookie = !!getSessionCookie(request);
 
-  if (!user && !isPublic) {
+  if (!hasCookie && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";
     return NextResponse.redirect(url);
   }
-  if (user && (path === "/login" || path === "/inscription")) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
-    url.search = "";
-    return NextResponse.redirect(url);
+  if (hasCookie && (path === "/login" || path === "/inscription")) {
+    // ici on vérifie vraiment : un cookie expiré ne doit pas renvoyer vers l'app (boucle)
+    const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
+    if (session) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
   }
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {

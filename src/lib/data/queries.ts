@@ -1,114 +1,124 @@
 import "server-only";
 import { cache } from "react";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { auth } from "@/lib/auth";
+import { db, schema as s } from "@/lib/db";
 import { DEFAULT_ACCOUNT, DEFAULT_CATEGORIES } from "@/lib/domain/defaults";
 import type { Account, Budget, Category, ForecastDecision, ForecastItem, Goal, PlaceMemoryEntry, Profile, Recurrence, Transaction } from "@/lib/domain/types";
 import { toAccount, toBudget, toCategory, toForecastDecision, toForecastItem, toGoal, toPlaceMemory, toProfile, toRecurrence, toTransaction } from "./mappers";
 
 /**
- * Couche de lecture côté serveur. Toute la dépendance à Supabase est confinée ici et dans
- * actions.ts : pour l'auto-hébergement, seules ces deux couches sont à réécrire.
+ * Couche de lecture côté serveur. Pas de RLS : chaque requête filtre explicitement sur
+ * l'utilisateur de la session (user_id), y compris dans actions.ts et planning-actions.ts.
  */
 
-const PAGE = 1000; // limite par défaut de PostgREST
+export interface SessionUser {
+  id: string;
+  email: string;
+  name: string;
+}
 
-export const getSession = cache(async () => {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-  return { supabase, user };
+export const getSession = cache(async (): Promise<{ user: SessionUser }> => {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) redirect("/login");
+  const { id, email, name } = session.user;
+  return { user: { id, email, name } };
 });
+
+/** Code d'erreur Postgres (23505 = violation d'unicité), y compris quand Drizzle l'enveloppe. */
+export function pgErrorCode(error: unknown): string | undefined {
+  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  const code = e?.code ?? e?.cause?.code;
+  return typeof code === "string" ? code : undefined;
+}
 
 /** Crée le profil, les catégories par défaut et un premier compte à la 1re connexion. */
 async function initializeUser(): Promise<void> {
-  const { supabase, user } = await getSession();
-  const { error } = await supabase
-    .from("profiles")
-    .insert({ id: user.id, email: user.email ?? "", display_name: user.user_metadata?.display_name ?? null });
-  if (error) {
-    // Course entre deux requêtes parallèles : le profil existe déjà, rien à faire.
-    if (error.code === "23505") return;
-    throw error;
-  }
-  await supabase.from("categories").insert(
-    DEFAULT_CATEGORIES.map((c, i) => ({
+  const { user } = await getSession();
+  await db.transaction(async (tx) => {
+    // Course entre deux requêtes parallèles : si le profil existe déjà, rien à faire.
+    const created = await tx
+      .insert(s.profiles)
+      .values({ id: user.id, email: user.email, display_name: user.name.trim() || null })
+      .onConflictDoNothing()
+      .returning({ id: s.profiles.id });
+    if (created.length === 0) return;
+    await tx.insert(s.categories).values(
+      DEFAULT_CATEGORIES.map((c, i) => ({
+        user_id: user.id,
+        name: c.name,
+        icon: c.icon,
+        color: c.color,
+        is_income: c.isIncome ?? false,
+        sort_order: i,
+      })),
+    );
+    await tx.insert(s.accounts).values({
       user_id: user.id,
-      name: c.name,
-      icon: c.icon,
-      color: c.color,
-      is_income: c.isIncome ?? false,
-      sort_order: i,
-    })),
-  );
-  await supabase.from("accounts").insert({
-    user_id: user.id,
-    name: DEFAULT_ACCOUNT.name,
-    type: DEFAULT_ACCOUNT.type,
-    icon: DEFAULT_ACCOUNT.icon,
-    color: DEFAULT_ACCOUNT.color,
-    in_budget: true,
+      name: DEFAULT_ACCOUNT.name,
+      type: DEFAULT_ACCOUNT.type,
+      icon: DEFAULT_ACCOUNT.icon,
+      color: DEFAULT_ACCOUNT.color,
+      in_budget: true,
+      initial_balance_date: new Date().toISOString().slice(0, 10),
+    });
   });
 }
 
 export const getProfile = cache(async (): Promise<Profile> => {
-  const { supabase, user } = await getSession();
-  const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
-  if (error) throw error;
-  if (data) return toProfile(data);
+  const { user } = await getSession();
+  const find = () => db.select().from(s.profiles).where(eq(s.profiles.id, user.id));
+  const [row] = await find();
+  if (row) return toProfile(row);
   await initializeUser();
-  const { data: created, error: err2 } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-  if (err2) throw err2;
+  const [created] = await find();
+  if (!created) throw new Error("Profil introuvable après initialisation.");
   return toProfile(created);
 });
 
 export const getAccounts = cache(async (): Promise<Account[]> => {
-  const { supabase } = await getSession();
-  const { data, error } = await supabase.from("accounts").select("*").order("sort_order").order("created_at");
-  if (error) throw error;
-  return data.map(toAccount);
+  const { user } = await getSession();
+  const rows = await db
+    .select()
+    .from(s.accounts)
+    .where(eq(s.accounts.user_id, user.id))
+    .orderBy(asc(s.accounts.sort_order), asc(s.accounts.created_at));
+  return rows.map(toAccount);
 });
 
 export const getCategories = cache(async (): Promise<Category[]> => {
-  const { supabase } = await getSession();
-  const { data, error } = await supabase.from("categories").select("*").order("sort_order").order("created_at");
-  if (error) throw error;
-  return data.map(toCategory);
+  const { user } = await getSession();
+  const rows = await db
+    .select()
+    .from(s.categories)
+    .where(eq(s.categories.user_id, user.id))
+    .orderBy(asc(s.categories.sort_order), asc(s.categories.created_at));
+  return rows.map(toCategory);
 });
 
 export const getBudgets = cache(async (): Promise<Budget[]> => {
-  const { supabase } = await getSession();
-  const { data, error } = await supabase.from("budgets").select("*");
-  if (error) throw error;
-  return data.map(toBudget);
+  const { user } = await getSession();
+  const rows = await db.select().from(s.budgets).where(eq(s.budgets.user_id, user.id));
+  return rows.map(toBudget);
 });
 
 /** Solde courant et nombre de transactions par compte. */
 export const getBalances = cache(async (): Promise<Map<string, { balanceCents: number; count: number }>> => {
-  const { supabase } = await getSession();
-  const { data, error } = await supabase.from("account_balances").select("*");
-  if (error) throw error;
-  return new Map(
-    data.map((r) => [r.account_id as string, { balanceCents: Number(r.balance_cents), count: Number(r.transaction_count) }]),
-  );
+  const { user } = await getSession();
+  const rows = await db.select().from(s.accountBalances).where(eq(s.accountBalances.user_id, user.id));
+  return new Map(rows.map((r) => [r.account_id, { balanceCents: Number(r.balance_cents), count: Number(r.transaction_count) }]));
 });
 
 export const getPlaceMemory = cache(async (): Promise<PlaceMemoryEntry[]> => {
-  const { supabase } = await getSession();
-  const rows: PlaceMemoryEntry[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
-      .from("place_memory")
-      .select("*")
-      .order("last_used", { ascending: false })
-      .range(from, from + PAGE - 1);
-    if (error) throw error;
-    rows.push(...data.map(toPlaceMemory));
-    if (data.length < PAGE) break;
-  }
-  return rows;
+  const { user } = await getSession();
+  const rows = await db
+    .select()
+    .from(s.placeMemory)
+    .where(eq(s.placeMemory.user_id, user.id))
+    .orderBy(desc(s.placeMemory.last_used));
+  return rows.map(toPlaceMemory);
 });
 
 export interface TransactionQuery {
@@ -117,58 +127,51 @@ export interface TransactionQuery {
   accountId?: string | null;
 }
 
-/** Transactions d'une période (bornes incluses), paginées pour dépasser la limite de 1000 lignes. */
+/** Transactions d'une période (bornes incluses), les plus récentes d'abord. */
 export async function getTransactions(query: TransactionQuery = {}): Promise<Transaction[]> {
-  const { supabase } = await getSession();
-  const rows: Transaction[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    let q = supabase.from("transactions").select("*");
-    if (query.from) q = q.gte("date", query.from);
-    if (query.to) q = q.lte("date", query.to);
-    if (query.accountId) q = q.eq("account_id", query.accountId);
-    const { data, error } = await q
-      .order("date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .range(offset, offset + PAGE - 1);
-    if (error) throw error;
-    rows.push(...data.map(toTransaction));
-    if (data.length < PAGE) break;
-  }
-  return rows;
+  const { user } = await getSession();
+  const t = s.transactions;
+  const rows = await db
+    .select()
+    .from(t)
+    .where(
+      and(
+        eq(t.user_id, user.id),
+        query.from ? gte(t.date, query.from) : undefined,
+        query.to ? lte(t.date, query.to) : undefined,
+        query.accountId ? eq(t.account_id, query.accountId) : undefined,
+      ),
+    )
+    .orderBy(desc(t.date), desc(t.created_at));
+  return rows.map(toTransaction);
 }
 
 export const getRecurrences = cache(async (): Promise<Recurrence[]> => {
-  const { supabase } = await getSession();
-  const { data, error } = await supabase.from("recurrences").select("*").order("label");
-  if (error) throw error;
-  return data.map(toRecurrence);
+  const { user } = await getSession();
+  const rows = await db.select().from(s.recurrences).where(eq(s.recurrences.user_id, user.id)).orderBy(asc(s.recurrences.label));
+  return rows.map(toRecurrence);
 });
 
 export const getForecastItems = cache(async (): Promise<ForecastItem[]> => {
-  const { supabase } = await getSession();
-  const { data, error } = await supabase.from("forecast_items").select("*").order("date");
-  if (error) throw error;
-  return data.map(toForecastItem);
+  const { user } = await getSession();
+  const rows = await db.select().from(s.forecastItems).where(eq(s.forecastItems.user_id, user.id)).orderBy(asc(s.forecastItems.date));
+  return rows.map(toForecastItem);
 });
 
 export const getForecastDecisions = cache(async (fromMonth?: string): Promise<ForecastDecision[]> => {
-  const { supabase } = await getSession();
-  let q = supabase.from("forecast_decisions").select("*");
-  if (fromMonth) q = q.gte("month", fromMonth);
-  const { data, error } = await q;
-  if (error) {
-    // migration « forecast_decisions » pas encore exécutée : aucune décision
-    if (error.code === "42P01" || error.code === "PGRST205") return [];
-    throw error;
-  }
-  return data.map(toForecastDecision);
+  const { user } = await getSession();
+  const d = s.forecastDecisions;
+  const rows = await db
+    .select()
+    .from(d)
+    .where(and(eq(d.user_id, user.id), fromMonth ? gte(d.month, fromMonth) : undefined));
+  return rows.map(toForecastDecision);
 });
 
 export const getGoals = cache(async (): Promise<Goal[]> => {
-  const { supabase } = await getSession();
-  const { data, error } = await supabase.from("goals").select("*").order("target_date");
-  if (error) throw error;
-  return data.map(toGoal);
+  const { user } = await getSession();
+  const rows = await db.select().from(s.goals).where(eq(s.goals.user_id, user.id)).orderBy(asc(s.goals.target_date));
+  return rows.map(toGoal);
 });
 
 /** Données communes à toutes les pages de l'application (layout). */

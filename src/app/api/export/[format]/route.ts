@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
+import { db, schema as s } from "@/lib/db";
 import { getAccounts, getBudgets, getCategories, getProfile, getSession, getTransactions } from "@/lib/data/queries";
 import { centsToCsv, toCsv } from "@/lib/domain/csv";
 import { todayIso } from "@/lib/domain/dates";
@@ -14,7 +16,7 @@ const TYPE_LABELS: Record<string, string> = {
 /** Export complet : /api/export/csv (transactions) ou /api/export/json (sauvegarde intégrale). */
 export async function GET(_request: Request, { params }: { params: Promise<{ format: string }> }) {
   const { format } = await params;
-  const { supabase, user } = await getSession();
+  const { user } = await getSession();
   const [profile, accounts, categories, budgets, transactions] = await Promise.all([
     getProfile(),
     getAccounts(),
@@ -52,13 +54,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ for
   }
 
   if (format === "json") {
+    // lignes brutes (colonnes SQL), comme dans les sauvegardes précédentes
     const [recurrences, forecastItems, forecastDecisions, goals] = await Promise.all([
-      supabase.from("recurrences").select("*"),
-      supabase.from("forecast_items").select("*"),
-      supabase.from("forecast_decisions").select("*"),
-      supabase.from("goals").select("*"),
+      db.select().from(s.recurrences).where(eq(s.recurrences.user_id, user.id)),
+      db.select().from(s.forecastItems).where(eq(s.forecastItems.user_id, user.id)),
+      db.select().from(s.forecastDecisions).where(eq(s.forecastDecisions.user_id, user.id)),
+      db.select().from(s.goals).where(eq(s.goals.user_id, user.id)),
     ]);
-    await supabase.from("profiles").update({ last_backup_at: new Date().toISOString() }).eq("id", user.id);
+    await db.update(s.profiles).set({ last_backup_at: new Date() }).where(eq(s.profiles.id, user.id));
     const backup = {
       app: "pecunia",
       version: 1,
@@ -69,10 +72,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ for
       categories,
       budgets,
       transactions,
-      recurrences: recurrences.data ?? [],
-      forecastItems: forecastItems.data ?? [],
-      forecastDecisions: forecastDecisions.data ?? [],
-      goals: goals.data ?? [],
+      recurrences,
+      forecastItems,
+      forecastDecisions,
+      goals,
     };
     return new NextResponse(JSON.stringify(backup, null, 2), {
       headers: {

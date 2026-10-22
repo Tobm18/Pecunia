@@ -1,22 +1,70 @@
--- Pecunia - schéma initial
+-- Pecunia - schéma initial (PostgreSQL 13+, sans dépendance à un hébergeur)
 --
--- Script IDEMPOTENT : il peut être relancé en entier sans erreur, même si une
--- exécution précédente s'est arrêtée en cours de route (Supabase SQL Editor :
--- coller TOUT le fichier, sans rien sélectionner, puis « Run »).
+-- Appliqué par `npm run db:migrate` (scripts/migrate.mjs). Script idempotent : il peut
+-- être relancé en entier sans erreur.
 --
--- Conçu pour rester du PostgreSQL standard (migration Supabase → auto-hébergé) :
---   * aucun trigger sur auth.users : l'initialisation d'un utilisateur (catégories
---     par défaut, premier compte) est faite par l'application ;
---   * seules les politiques RLS dépendent de Supabase via auth.uid(). En
---     auto-hébergé, on redéfinit auth.uid() (ex. lecture d'un setting de session)
---     ou on filtre par user_id dans la couche API.
+-- Isolation entre utilisateurs : pas de RLS. Chaque table métier porte user_id (clé
+-- étrangère vers "user", suppression en cascade) et la couche de données filtre
+-- systématiquement dessus (src/lib/data).
 --
 -- Montants : entiers en centimes (bigint) pour éviter toute erreur d'arrondi.
 -- Transactions : montant SIGNÉ du point de vue du compte (sortie < 0, entrée > 0).
 -- Un virement = deux lignes (source négative, destination positive) liées par
 -- transfer_id, si bien que solde = solde initial + somme des lignes du compte.
 
--- gen_random_uuid() est natif depuis PostgreSQL 13 : aucune extension requise.
+-- ---------------------------------------------------------------------------
+-- Authentification (Better Auth : tables user, session, account, verification)
+-- ---------------------------------------------------------------------------
+create table if not exists public."user" (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  email text not null unique,
+  email_verified boolean not null default false,
+  image text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.session (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public."user" (id) on delete cascade,
+  token text not null unique,
+  expires_at timestamptz not null,
+  ip_address text,
+  user_agent text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists session_user_idx on public.session (user_id);
+
+-- Identifiants de connexion (mot de passe haché pour provider_id = 'credential')
+create table if not exists public.account (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public."user" (id) on delete cascade,
+  account_id text not null,
+  provider_id text not null,
+  access_token text,
+  refresh_token text,
+  id_token text,
+  access_token_expires_at timestamptz,
+  refresh_token_expires_at timestamptz,
+  scope text,
+  password text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists account_user_idx on public.account (user_id);
+
+-- Jetons des liens email (lien magique, réinitialisation du mot de passe)
+create table if not exists public.verification (
+  id uuid primary key default gen_random_uuid(),
+  identifier text not null,
+  value text not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists verification_identifier_idx on public.verification (identifier);
 
 -- ---------------------------------------------------------------------------
 -- Types énumérés (créés seulement s'ils n'existent pas)
@@ -44,7 +92,7 @@ end $$;
 -- Profils / préférences
 -- ---------------------------------------------------------------------------
 create table if not exists public.profiles (
-  id uuid primary key,                       -- = auth.users.id
+  id uuid primary key references public."user" (id) on delete cascade,
   email text not null,
   display_name text,
   currency text not null default 'EUR',
@@ -62,7 +110,7 @@ create table if not exists public.profiles (
 -- ---------------------------------------------------------------------------
 create table if not exists public.accounts (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
+  user_id uuid not null references public."user" (id) on delete cascade,
   name text not null check (length(trim(name)) > 0),
   type public.account_type not null default 'current',
   initial_balance_cents bigint not null default 0,
@@ -83,7 +131,7 @@ create index if not exists accounts_user_idx on public.accounts (user_id);
 -- ---------------------------------------------------------------------------
 create table if not exists public.categories (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
+  user_id uuid not null references public."user" (id) on delete cascade,
   name text not null check (length(trim(name)) > 0),
   color text not null default '#94a3b8',
   icon text not null default 'circle',
@@ -105,7 +153,7 @@ create unique index if not exists categories_user_name_uniq
 -- ---------------------------------------------------------------------------
 create table if not exists public.budgets (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
+  user_id uuid not null references public."user" (id) on delete cascade,
   category_id uuid not null,
   mode public.budget_mode not null default 'fixed',
   amount_cents bigint not null default 0 check (amount_cents >= 0),
@@ -117,11 +165,37 @@ create table if not exists public.budgets (
 create index if not exists budgets_user_idx on public.budgets (user_id);
 
 -- ---------------------------------------------------------------------------
+-- Récurrences
+-- ---------------------------------------------------------------------------
+create table if not exists public.recurrences (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public."user" (id) on delete cascade,
+  type public.transaction_type not null check (type in ('out', 'in', 'transfer')),
+  label text not null check (length(trim(label)) > 0),
+  amount_cents bigint not null check (amount_cents > 0),
+  category_id uuid,
+  account_id uuid not null,
+  to_account_id uuid,
+  frequency public.recurrence_frequency not null default 'monthly',
+  due_day smallint not null default 1 check (due_day between 1 and 31),
+  start_date date not null,
+  end_date date,
+  is_subscription boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (id, user_id),
+  check (end_date is null or end_date >= start_date),
+  foreign key (category_id, user_id) references public.categories (id, user_id) on delete set null (category_id),
+  foreign key (account_id, user_id) references public.accounts (id, user_id) on delete cascade,
+  foreign key (to_account_id, user_id) references public.accounts (id, user_id) on delete cascade
+);
+create index if not exists recurrences_user_idx on public.recurrences (user_id);
+
+-- ---------------------------------------------------------------------------
 -- Transactions
 -- ---------------------------------------------------------------------------
 create table if not exists public.transactions (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
+  user_id uuid not null references public."user" (id) on delete cascade,
   account_id uuid not null,
   type public.transaction_type not null,
   amount_cents bigint not null check (amount_cents <> 0),
@@ -134,9 +208,11 @@ create table if not exists public.transactions (
   transfer_id uuid,
   recurrence_id uuid,
   created_at timestamptz not null default now(),
+  unique (id, user_id),
   foreign key (account_id, user_id) references public.accounts (id, user_id) on delete cascade,
   foreign key (category_id, user_id) references public.categories (id, user_id) on delete set null (category_id),
   foreign key (counterpart_account_id, user_id) references public.accounts (id, user_id) on delete set null (counterpart_account_id),
+  foreign key (recurrence_id, user_id) references public.recurrences (id, user_id) on delete set null (recurrence_id),
   constraint transactions_sign_chk check (
     (type = 'out' and amount_cents < 0)
     or (type in ('in', 'interest') and amount_cents > 0)
@@ -152,66 +228,68 @@ create index if not exists transactions_transfer_idx on public.transactions (tra
 create index if not exists transactions_place_idx on public.transactions (user_id, lower(place));
 
 -- ---------------------------------------------------------------------------
--- Évolutions (v2) - tables créées dès maintenant pour figer le modèle
+-- Prévisionnel : lignes prévues (une série = même series_id ; virement = to_account_id)
 -- ---------------------------------------------------------------------------
-create table if not exists public.recurrences (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
-  type public.transaction_type not null check (type in ('out', 'in', 'transfer')),
-  label text not null check (length(trim(label)) > 0),
-  amount_cents bigint not null check (amount_cents > 0),
-  category_id uuid references public.categories (id) on delete set null,
-  account_id uuid not null references public.accounts (id) on delete cascade,
-  to_account_id uuid references public.accounts (id) on delete cascade,
-  frequency public.recurrence_frequency not null default 'monthly',
-  due_day smallint not null default 1 check (due_day between 1 and 31),
-  start_date date not null,
-  end_date date,
-  is_subscription boolean not null default false,
-  created_at timestamptz not null default now(),
-  check (end_date is null or end_date >= start_date)
-);
-create index if not exists recurrences_user_idx on public.recurrences (user_id);
-
-do $$
-begin
-  if not exists (select 1 from pg_constraint where conname = 'transactions_recurrence_fk') then
-    alter table public.transactions
-      add constraint transactions_recurrence_fk
-      foreign key (recurrence_id) references public.recurrences (id) on delete set null;
-  end if;
-end $$;
-
 create table if not exists public.forecast_items (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
-  account_id uuid not null references public.accounts (id) on delete cascade,
+  user_id uuid not null references public."user" (id) on delete cascade,
+  account_id uuid not null,
   label text not null,
   amount_cents bigint not null check (amount_cents <> 0),   -- signé
   date date not null,
   status public.forecast_status not null default 'planned',
-  linked_transaction_id uuid references public.transactions (id) on delete set null,
-  created_at timestamptz not null default now()
+  linked_transaction_id uuid,
+  series_id uuid,
+  to_account_id uuid,
+  created_at timestamptz not null default now(),
+  foreign key (account_id, user_id) references public.accounts (id, user_id) on delete cascade,
+  foreign key (to_account_id, user_id) references public.accounts (id, user_id) on delete cascade,
+  foreign key (linked_transaction_id, user_id) references public.transactions (id, user_id) on delete set null (linked_transaction_id),
+  constraint forecast_items_transfer_check
+    check (to_account_id is null or (to_account_id <> account_id and amount_cents < 0))
 );
 create index if not exists forecast_items_user_idx on public.forecast_items (user_id, date);
 
+-- Décision sur une proposition du prévisionnel (échéance de récurrence ou ligne de budget).
+-- source_key : « rec:<récurrence>:<date d'échéance> » ou « bud:<catégorie>:<mois> ».
+-- Sans décision, la proposition est « à valider » et n'entre pas dans le solde projeté.
+create table if not exists public.forecast_decisions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public."user" (id) on delete cascade,
+  source_key text not null check (source_key ~ '^(rec|bud):'),
+  month text not null check (month ~ '^[0-9]{4}-[0-9]{2}$'),
+  status text not null check (status in ('accepted', 'rejected')),
+  -- valeurs modifiées (vides = celles proposées)
+  amount_cents bigint check (amount_cents is null or amount_cents > 0),
+  account_id uuid,
+  date date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, source_key),
+  foreign key (account_id, user_id) references public.accounts (id, user_id) on delete set null (account_id)
+);
+create index if not exists forecast_decisions_user_idx on public.forecast_decisions (user_id, month);
+
+-- ---------------------------------------------------------------------------
+-- Objectifs d'épargne
+-- ---------------------------------------------------------------------------
 create table if not exists public.goals (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
-  account_id uuid not null references public.accounts (id) on delete cascade,
+  user_id uuid not null references public."user" (id) on delete cascade,
+  account_id uuid not null,
   name text not null check (length(trim(name)) > 0),
   target_cents bigint not null check (target_cents > 0),
   target_date date not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  foreign key (account_id, user_id) references public.accounts (id, user_id) on delete cascade
 );
 create index if not exists goals_user_idx on public.goals (user_id);
 
 -- ---------------------------------------------------------------------------
--- Vues de lecture
+-- Vues de lecture (portent user_id : la couche de données filtre dessus)
 -- ---------------------------------------------------------------------------
 -- Solde courant par compte = solde initial + somme signée des transactions
-create or replace view public.account_balances
-with (security_invoker = true) as
+create or replace view public.account_balances as
 select
   a.id as account_id,
   a.user_id,
@@ -222,8 +300,7 @@ left join public.transactions t on t.account_id = a.id
 group by a.id;
 
 -- Mémoire des lieux : dernière catégorie / dernier compte utilisés pour chaque lieu
-create or replace view public.place_memory
-with (security_invoker = true) as
+create or replace view public.place_memory as
 select distinct on (t.user_id, lower(trim(t.place)))
   t.user_id,
   trim(t.place) as place,
@@ -235,28 +312,3 @@ where t.place is not null
   and length(trim(t.place)) > 0
   and t.type in ('out', 'in', 'interest')
 order by t.user_id, lower(trim(t.place)), t.date desc, t.created_at desc;
-
--- ---------------------------------------------------------------------------
--- Row Level Security : chaque utilisateur ne voit que ses lignes
--- ---------------------------------------------------------------------------
-alter table public.profiles enable row level security;
-drop policy if exists "profiles_owner" on public.profiles;
-create policy "profiles_owner" on public.profiles
-  for all using (id = auth.uid()) with check (id = auth.uid());
-
-do $$
-declare
-  t text;
-begin
-  foreach t in array array[
-    'accounts', 'categories', 'budgets', 'transactions',
-    'recurrences', 'forecast_items', 'goals'
-  ] loop
-    execute format('alter table public.%I enable row level security', t);
-    execute format('drop policy if exists %I on public.%I', t || '_owner', t);
-    execute format(
-      'create policy %I on public.%I for all using (user_id = auth.uid()) with check (user_id = auth.uid())',
-      t || '_owner', t
-    );
-  end loop;
-end $$;

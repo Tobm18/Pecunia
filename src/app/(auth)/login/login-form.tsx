@@ -4,13 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import { KeyRound, Mail } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { authClient } from "@/lib/auth-client";
 import { Banner, Button, FieldError, Input, Label } from "@/components/ui/primitives";
 
 const REQUIRED = "Ce champ est obligatoire";
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
-export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
+export function LoginForm({ allowSignup, passwordReset = false }: { allowSignup: boolean; passwordReset?: boolean }) {
   const router = useRouter();
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -18,7 +18,7 @@ export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(passwordReset ? "Mot de passe modifié : connecte-toi avec le nouveau" : null);
   const [pending, setPending] = useState<false | "password" | "magic">(false);
 
   function validateEmail(): boolean {
@@ -48,9 +48,9 @@ export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
     }
     setPending("password");
     try {
-      const { error: authError } = await createClient().auth.signInWithPassword({ email: email.trim(), password });
+      const { error: authError } = await authClient.signIn.email({ email: email.trim(), password });
       if (authError) {
-        const invalid = authError.status === 400 || authError.code === "invalid_credentials";
+        const invalid = authError.status === 401 || authError.code === "INVALID_EMAIL_OR_PASSWORD";
         setError(invalid ? "Email ou mot de passe incorrect" : "Connexion impossible, réessaie dans un instant");
         if (invalid) setPassword("");
         setPending(false);
@@ -72,13 +72,7 @@ export function LoginForm({ allowSignup }: { allowSignup: boolean }) {
     if (!validateEmail()) return;
     setPending("magic");
     try {
-      await createClient().auth.signInWithOtp({
-        email: email.trim(),
-        options: {
-          shouldCreateUser: false,
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
+      await authClient.signIn.magicLink({ email: email.trim(), callbackURL: "/", errorCallbackURL: "/auth/lien-invalide" });
     } catch {
       // Message neutre dans tous les cas : ne jamais révéler si le compte existe.
     } finally {

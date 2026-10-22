@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { Banner, Button, FieldError, Input, Label } from "@/components/ui/primitives";
+import { authClient } from "@/lib/auth-client";
+import { Button, FieldError, Input, Label } from "@/components/ui/primitives";
 
 const MIN_LENGTH = 8;
 
@@ -14,7 +14,6 @@ export function SignupForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [checkEmail, setCheckEmail] = useState(false);
   const [pending, setPending] = useState(false);
 
   async function onSubmit(e: FormEvent) {
@@ -23,33 +22,17 @@ export function SignupForm() {
     if (!email.trim() || !password) return setError("Email et mot de passe requis.");
     if (password.length < MIN_LENGTH) return setError(`Mot de passe : au moins ${MIN_LENGTH} caractères.`);
     setPending(true);
-    const { data, error: signUpError } = await createClient()
-      .auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: { display_name: name.trim() || null },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      })
+    const { error: signUpError } = await authClient.signUp
+      .email({ email: email.trim(), password, name: name.trim() })
       // erreur réseau : même message, et le spinner s'arrête
-      .catch((err: unknown) => ({ data: { session: null }, error: err }));
+      .catch((err: unknown) => ({ error: err }));
     if (signUpError) {
       setPending(false);
       return setError("Inscription impossible, vérifie l'email ou réessaie plus tard.");
     }
-    if (data.session) {
-      // le spinner reste affiché jusqu'à l'arrivée sur le tableau de bord
-      router.replace("/");
-      router.refresh();
-    } else {
-      setPending(false);
-      setCheckEmail(true);
-    }
-  }
-
-  if (checkEmail) {
-    return <Banner tone="success">Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi.</Banner>;
+    // connecté dès l'inscription ; le spinner reste affiché jusqu'à l'arrivée sur le tableau de bord
+    router.replace("/");
+    router.refresh();
   }
 
   return (

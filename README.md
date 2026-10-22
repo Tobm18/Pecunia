@@ -11,27 +11,33 @@ Références : cahier des charges, SFD (spécifications fonctionnelles détaill�
 | Couche | Choix |
 | --- | --- |
 | Front | Next.js 16 (App Router, Server Components, Server Actions), React 19, Tailwind CSS 4 |
-| Back (v1) | Supabase : PostgreSQL, Auth, API. RLS sur toutes les tables |
+| Base de données | PostgreSQL (Neon en production), requêtes via Drizzle ORM |
+| Authentification | Better Auth : email + mot de passe, lien magique, réinitialisation. Emails via Resend |
+| Hébergement | Vercel |
 | Graphiques | Recharts + sparklines SVG |
-| Tests | Vitest (logique métier) |
+| Tests | Vitest : logique métier, et couche de données sur PostgreSQL en mémoire (PGlite) |
 
 ## Démarrer
 
 ```bash
 npm install
-cp .env.example .env.local   # renseigner l'URL et la clé anon Supabase
+cp .env.example .env.local   # renseigner DATABASE_URL et BETTER_AUTH_SECRET
+npm run db:migrate           # crée les tables (relançable sans risque)
 npm run dev                  # http://localhost:3000
 ```
 
-### Mise en place de Supabase
+Base locale : n'importe quel PostgreSQL 15+, par exemple
+`docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=pecunia postgres:17-alpine`
+puis `DATABASE_URL=postgres://postgres:pecunia@localhost:5432/postgres`.
 
-1. Créer un projet sur [supabase.com](https://supabase.com), région UE.
-2. **SQL Editor** : exécuter, dans l'ordre, chaque fichier de `supabase/migrations/` (`20260928000000_init.sql`, puis `20260930000000_delete_account.sql`, puis `20261001000000_forecast_decisions.sql`, puis `20261002000000_forecast_transfers.sql`). Coller **tout** le fichier, sans rien sélectionner (sinon seule la sélection est exécutée), puis « Run ». Le script peut être relancé sans risque. Autre option, avec la CLI : `supabase link` puis `supabase db push`.
-3. **Authentication → URL Configuration** :
-   - Site URL : `http://localhost:3000` (puis l'URL de production) ;
-   - Redirect URLs : `http://localhost:3000/auth/callback` (et l'équivalent en production).
-4. **Settings → API** : copier l'URL du projet et la clé `anon` dans `.env.local`.
-5. Créer son compte sur `/inscription`, puis passer `NEXT_PUBLIC_ALLOW_SIGNUP=false`. À la première connexion, l'application crée le profil, les catégories par défaut et un compte courant.
+Sans `RESEND_API_KEY`, les emails (lien magique, réinitialisation) ne sont pas envoyés : leur contenu, lien compris, est écrit dans la console du serveur.
+
+### Mise en production (Vercel + Neon)
+
+1. Projet Vercel relié au dépôt, base Neon ajoutée depuis l'onglet **Storage** (offre gratuite, région `fra1`) : `DATABASE_URL` et `DATABASE_URL_UNPOOLED` sont créées automatiquement.
+2. Variables à ajouter : `BETTER_AUTH_SECRET` (`openssl rand -base64 32`), `BETTER_AUTH_URL` (URL de production), `NEXT_PUBLIC_ALLOW_SIGNUP`, et pour les emails `RESEND_API_KEY` et `MAIL_FROM`.
+3. Migrations : `vercel env pull .env.production.local`, puis `node --env-file=.env.production.local scripts/migrate.mjs`.
+4. Créer son compte sur `/inscription`, puis passer `NEXT_PUBLIC_ALLOW_SIGNUP=false` et redéployer. À la première connexion, l'application crée le profil, les catégories par défaut et un compte courant.
 
 ## Scripts
 
@@ -39,21 +45,24 @@ npm run dev                  # http://localhost:3000
 | --- | --- |
 | `npm run dev` | Serveur de développement |
 | `npm run build` | Build de production |
-| `npm test` | Tests unitaires de la logique métier |
+| `npm test` | Tests (logique métier et couche de données) |
+| `npm run db:migrate` | Applique les migrations SQL de `db/migrations/` pas encore exécutées |
 | `npm run typecheck` | Vérification TypeScript |
 
 ## Architecture
 
 ```
-supabase/migrations/     Schéma SQL (Postgres standard + RLS)
+db/migrations/           Schéma SQL (PostgreSQL standard), appliqué par scripts/migrate.mjs
 src/lib/domain/          Logique métier pure et testée : montants, dates, KPI, budgets,
                          mémoire des lieux, construction des saisies, CSV
-src/lib/data/            Seule couche dépendante de Supabase : lectures (queries.ts) et
-                         mutations validées par zod (actions.ts)
+src/lib/db/              Connexion et schéma Drizzle (miroir du SQL)
+src/lib/auth.ts          Better Auth (sessions en base, cookies, emails)
+src/lib/data/            Accès aux données : lectures (queries.ts) et mutations validées
+                         par zod (actions.ts…), toujours filtrées sur l'utilisateur connecté
 src/components/          UI : primitives, navigation, saisie, transactions, comptes, graphiques
 src/app/(auth)/          Connexion, lien magique, mot de passe oublié, inscription
 src/app/(app)/           Écrans : accueil, saisie, transactions, comptes, budgets, catégories, paramètres
-src/proxy.ts             Rafraîchissement de session et redirection vers /login
+src/proxy.ts             Redirection vers /login sans cookie de session
 ```
 
 ### Règles métier structurantes (voir `src/lib/domain`)
@@ -64,11 +73,11 @@ src/proxy.ts             Rafraîchissement de session et redirection vers /login
 - Budget : montant fixe, ou pourcentage du revenu de référence. Seuils à 80 % (orange) et 100 % (rouge). Le budget global porte sur toutes les dépenses des comptes « dans le budget ».
 - « Début du mois » (1 à 28) : si J > 1, le mois budgétaire M va du J du mois M−1 au J−1 du mois M.
 
-### Portabilité (Supabase → auto-hébergé)
+### Isolation des données et portabilité
 
-- Le schéma est du PostgreSQL standard, sans trigger sur `auth.users`. L'initialisation d'un utilisateur est faite par l'application.
-- Seules les politiques RLS utilisent `auth.uid()`. Des clés étrangères composites `(id, user_id)` empêchent aussi de référencer les données d'un autre utilisateur.
-- Toute la dépendance à Supabase est confinée dans `src/lib/data` et `src/lib/supabase`.
+- Pas de RLS : chaque requête de `src/lib/data` filtre sur `user_id`. Des clés étrangères composites `(id, user_id)` empêchent en plus de référencer le compte ou la catégorie d'un autre utilisateur. `src/lib/data/data-layer.test.ts` vérifie cette isolation action par action.
+- Toutes les tables métier dépendent de `user` avec suppression en cascade : supprimer l'utilisateur efface toutes ses données.
+- Le schéma est du PostgreSQL standard : Neon, un Postgres auto-hébergé ou tout autre hébergeur conviennent, en changeant seulement `DATABASE_URL`.
 - Export complet à tout moment depuis Paramètres : CSV des transactions, sauvegarde JSON intégrale.
 
 ## Avancement
