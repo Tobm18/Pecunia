@@ -12,7 +12,8 @@ import { allocateRent, isUnnamedTransfer, matchesRecipient, recipientName, type 
  * compte). Le total d'un virement et de sa part loyer est toujours son montant d'origine.
  */
 
-export const RENT_NOTE = "Part loyer";
+/** Lendemain d'une date ISO */
+const dayAfter = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
 
 export interface RentPeriodView extends RentPeriod {
   id: string;
@@ -22,6 +23,8 @@ export interface RentRuleView {
   id: string;
   merchantKey: string;
   categoryId: string;
+  /** Dernier jour où la règle s'applique (null : sans fin) */
+  endDate: string | null;
   periods: RentPeriodView[];
   /** Virements concernés et total compté en loyer */
   transfers: number;
@@ -66,9 +69,10 @@ async function periodsByRule(userId: string): Promise<Map<string, RentPeriodView
 /** Applique toutes les règles de loyer de l'utilisateur. Renvoie le nombre de virements concernés. */
 export async function applyRentRules(userId: string): Promise<number> {
   const t = s.transactions;
-  const [rules, periods, hasSplits] = await Promise.all([
+  const [rules, periods, categories, hasSplits] = await Promise.all([
     db.select().from(s.rentRules).where(eq(s.rentRules.user_id, userId)),
     periodsByRule(userId),
+    db.select({ id: s.categories.id, name: s.categories.name }).from(s.categories).where(eq(s.categories.user_id, userId)),
     // parts existantes (y compris celles d'une règle qui vient d'être supprimée) : à recoller
     db
       .select({ id: t.id })
@@ -90,12 +94,19 @@ export async function applyRentRules(userId: string): Promise<number> {
     ).map((r) => ({ ...r, key: merchantKey(r.place) }));
     // un virement ne compte que pour une règle (un virement sans nom peut correspondre à plusieurs)
     const claimed = new Set<string>();
+    const categoryName = new Map(categories.map((c) => [c.id, c.name]));
     for (const rule of rules) {
-      const lines = rows.filter((r) => !claimed.has(r.id) && (matchesRecipient(rule.merchant_key, r.key) || isUnnamedTransfer(r.key)));
+      const end = rule.end_date;
+      const lines = rows.filter(
+        (r) => !claimed.has(r.id) && (!end || r.date <= end) && (matchesRecipient(rule.merchant_key, r.key) || isUnnamedTransfer(r.key)),
+      );
+      // après la date de fin, plus rien n'est dû (pas de paiement d'avance au-delà)
+      const rulePeriods = [...(periods.get(rule.id) ?? []), ...(end ? [{ start: dayAfter(end), mode: "monthly" as const, value: 0 }] : [])];
       const parts = allocateRent(
         lines.map((l) => ({ id: l.id, date: l.date, cents: -Number(l.amount), unnamed: isUnnamedTransfer(l.key) })),
-        periods.get(rule.id) ?? [],
+        rulePeriods,
       );
+      const note = `Part ${categoryName.get(rule.category_id) ?? "réservée"}`;
       for (const line of lines) {
         const part = parts.get(line.id);
         if (!part) continue;
@@ -118,7 +129,7 @@ export async function applyRentRules(userId: string): Promise<number> {
           amount_cents: -part,
           date: line.date,
           place: line.place,
-          note: RENT_NOTE,
+          note,
           category_id: rule.category_id,
           category_source: "rent",
           category_confidence: CONFIDENCE.rent,
@@ -155,6 +166,7 @@ export async function listRentRules(userId: string): Promise<RentRuleView[]> {
       id: r.id,
       merchantKey: r.merchant_key,
       categoryId: r.category_id,
+      endDate: r.end_date,
       periods: periods.get(r.id) ?? [],
       transfers: Number(byRule.get(r.id)?.n ?? 0),
       rentCents: -Number(byRule.get(r.id)?.total ?? 0),
@@ -202,14 +214,17 @@ async function ownedCategory(userId: string, categoryId: string) {
 }
 
 /** Nouvelle règle (proche + catégorie) avec sa première période. */
-export async function createRentRule(userId: string, input: { merchantKey: string; categoryId: string; period: RentPeriod }): Promise<void> {
+export async function createRentRule(
+  userId: string,
+  input: { merchantKey: string; categoryId: string; period: RentPeriod; endDate: string | null },
+): Promise<void> {
   const categoryId = await ownedCategory(userId, input.categoryId);
   await db.transaction(async (tx) => {
     const r = s.rentRules;
     const [rule] = await tx
       .insert(r)
-      .values({ user_id: userId, merchant_key: input.merchantKey, category_id: categoryId })
-      .onConflictDoUpdate({ target: [r.user_id, r.merchant_key], set: { category_id: categoryId } })
+      .values({ user_id: userId, merchant_key: input.merchantKey, category_id: categoryId, end_date: input.endDate })
+      .onConflictDoUpdate({ target: [r.user_id, r.merchant_key], set: { category_id: categoryId, end_date: input.endDate } })
       .returning({ id: r.id });
     await upsertPeriod(tx, userId, rule!.id, input.period);
   });
@@ -238,6 +253,15 @@ export async function addRentPeriod(userId: string, ruleId: string, period: Rent
 /** Retire une période (la précédente s'applique alors jusqu'à la suivante). */
 export async function deleteRentPeriod(userId: string, periodId: string): Promise<void> {
   await db.delete(s.rentPeriods).where(and(eq(s.rentPeriods.id, periodId), eq(s.rentPeriods.user_id, userId)));
+  await applyRentRules(userId);
+}
+
+/** Date de fin d'une règle (null : sans fin). */
+export async function setRentEnd(userId: string, ruleId: string, endDate: string | null): Promise<void> {
+  await db
+    .update(s.rentRules)
+    .set({ end_date: endDate })
+    .where(and(eq(s.rentRules.id, ruleId), eq(s.rentRules.user_id, userId)));
   await applyRentRules(userId);
 }
 

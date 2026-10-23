@@ -5,10 +5,10 @@ import { z } from "zod";
 import { isValidIsoDate } from "@/lib/domain/dates";
 import { parseAmountToCents } from "@/lib/domain/money";
 import type { RentPeriod } from "@/lib/domain/rent";
-import { addRentPeriod, createRentRule, deleteRentPeriod, deleteRentRule, setRentCategory } from "./rent";
+import { addRentPeriod, createRentRule, deleteRentPeriod, deleteRentRule, setRentCategory, setRentEnd } from "./rent";
 import { getSession } from "./queries";
 
-/** Actions du loyer payé à un proche (page Catégories). */
+/** Actions des virements réguliers à un proche : loyer, remboursement… (page Catégories). */
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -42,14 +42,29 @@ function toPeriod(input: z.input<typeof periodInput>): RentPeriod | string {
   return { start, mode, value: pct };
 }
 
-export async function createRent(input: { merchantKey: string; categoryId: string; period: z.input<typeof periodInput> }): Promise<ActionResult> {
+export async function createRent(input: {
+  merchantKey: string;
+  categoryId: string;
+  period: z.input<typeof periodInput>;
+  /** Fin facultative (« » : sans fin) */
+  endDate?: string;
+}): Promise<ActionResult> {
   if (!z.string().trim().min(3).max(120).safeParse(input.merchantKey).success || !uuid.safeParse(input.categoryId).success) {
     return { ok: false, error: "Choisis le proche et la catégorie." };
   }
   const period = toPeriod(input.period);
   if (typeof period === "string") return { ok: false, error: period };
+  const endDate = input.endDate || null;
+  if (endDate && (!isValidIsoDate(endDate) || endDate < period.start)) return { ok: false, error: "La date de fin doit suivre la date de début." };
   const { user } = await getSession();
-  return createRentRule(user.id, { merchantKey: input.merchantKey.trim(), categoryId: input.categoryId, period }).then(done, failed);
+  return createRentRule(user.id, { merchantKey: input.merchantKey.trim(), categoryId: input.categoryId, period, endDate }).then(done, failed);
+}
+
+/** Date de fin d'une règle (« » : sans fin). */
+export async function changeRentEnd(ruleId: string, endDate: string): Promise<ActionResult> {
+  if (!uuid.safeParse(ruleId).success || (endDate && !isValidIsoDate(endDate))) return { ok: false, error: "Date invalide." };
+  const { user } = await getSession();
+  return setRentEnd(user.id, ruleId, endDate || null).then(done, failed);
 }
 
 export async function addPeriod(ruleId: string, input: z.input<typeof periodInput>): Promise<ActionResult> {

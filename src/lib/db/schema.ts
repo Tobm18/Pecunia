@@ -295,12 +295,14 @@ export const merchantRules = pgTable("merchant_rules", {
   updated_at: ts("updated_at").notNull().defaultNow(),
 });
 
-/** Loyer payé à un proche : ses virements et la catégorie de la part loyer. */
+/** Virements réguliers à un proche (loyer, remboursement…) : ses virements, la catégorie de la part, la fin éventuelle. */
 export const rentRules = pgTable("rent_rules", {
   id: uuid("id").primaryKey().defaultRandom(),
   user_id: uuid("user_id").notNull(),
   merchant_key: text("merchant_key").notNull(),
   category_id: uuid("category_id").notNull(),
+  /** Dernier jour où la règle s'applique (null : sans fin) */
+  end_date: day("end_date"),
   created_at: ts("created_at").notNull().defaultNow(),
 });
 

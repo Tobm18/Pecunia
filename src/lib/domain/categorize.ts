@@ -275,7 +275,7 @@ export const SOURCE_LABELS: Record<CategorySource, string> = {
   directory: "annuaire des entreprises",
   fallback: "aucun indice",
   legacy: "ancien classement",
-  rent: "règle de loyer",
+  rent: "règle de virement à un proche",
 };
 
 /** Une catégorie automatique est-elle à vérifier ? (une saisie manuelle ne l'est jamais) */
