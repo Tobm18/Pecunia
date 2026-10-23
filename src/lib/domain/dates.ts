@@ -99,11 +99,11 @@ export function monthName(key: MonthKey): string {
   return MONTHS[parseMonth(key)[1] - 1]!;
 }
 
-/** « 2026-09-28 » → « Lundi 28 septembre » */
+/** « 2026-09-28 » → « Lundi 28 septembre 2026 » */
 export function dayLabel(date: IsoDate): string {
   const [y, m, d] = parseDate(date);
   const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()]!;
-  return `${capitalize(weekday)} ${d} ${MONTHS[m - 1]}`;
+  return `${capitalize(weekday)} ${d} ${MONTHS[m - 1]} ${y}`;
 }
 
 /** « 2026-09-28 » → « 28 sept. » */

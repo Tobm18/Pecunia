@@ -55,7 +55,7 @@ describe("dates", () => {
 
   it("formate en français", () => {
     expect(monthLabel("2026-09")).toBe("Septembre 2026");
-    expect(dayLabel("2026-09-28")).toBe("Lundi 28 septembre");
+    expect(dayLabel("2026-09-28")).toBe("Lundi 28 septembre 2026");
   });
 
   it("valide les dates", () => {
