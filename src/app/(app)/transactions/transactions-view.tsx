@@ -1,6 +1,6 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { recategorizeTransactions } from "@/lib/data/categorize-actions";
 import { Modal, useToast } from "@/components/ui/overlay";
@@ -22,6 +22,9 @@ type TypeFilter = "all" | "out" | "in" | "transfer";
 
 /** Lignes affichées d'un coup (« Afficher plus » ajoute le paquet suivant) */
 const PAGE = 200;
+
+/** Libellé d'un champ de la carte de filtres */
+const filterLabel = "text-[11px] font-bold uppercase tracking-wider text-n-600";
 
 export function TransactionsView({
   transactions,
@@ -66,6 +69,16 @@ export function TransactionsView({
   const reviewCount = useMemo(() => transactions.filter((t) => needsReview(t.categorySource, t.categoryConfidence)).length, [transactions]);
 
   const total = signedTotal(filtered, accountId);
+  const activeFilters = [search.trim(), categoryId, type !== "all", accountId, reviewOnly, minCents !== null || maxCents !== null].filter(Boolean).length;
+  function resetFilters() {
+    setSearch("");
+    setCategoryId("");
+    setType("all");
+    setAccountId(null);
+    setReviewOnly(false);
+    setMinAmount("");
+    setMaxAmount("");
+  }
   // reclassement en masse : les dépenses / recettes affichées quand un filtre est actif
   const filtering = !!search.trim() || !!categoryId || reviewOnly || minCents !== null || maxCents !== null;
   const bulkTargets = filtering ? filtered.filter((t) => (t.type === "out" || t.type === "in") && t.categorySource !== "rent" && !t.splitOf) : [];
@@ -101,89 +114,114 @@ export function TransactionsView({
 
   return (
     <>
-      <div className="flex flex-col gap-3 md:rounded-card md:bg-surface md:p-4 md:shadow-card">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_200px]">
-          <label className="relative block">
-            <Search size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-n-500" />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher un lieu, une note"
-              className="block min-h-11 w-full rounded-[10px] border border-n-300 bg-surface pr-3 pl-9 text-base placeholder:text-n-500 focus:border-accent focus:outline-none md:min-h-9 md:text-sm"
-            />
-          </label>
-          <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} aria-label="Catégorie">
-            <option value="">Toutes les catégories</option>
-            {activeCategories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-semibold text-n-700">Montant</span>
-          <Input
-            inputMode="decimal"
-            value={minAmount}
-            onChange={(e) => setMinAmount(sanitizeAmountInput(e.target.value))}
-            placeholder="min"
-            aria-label="Montant minimum, en euros"
-            className="w-24 text-right tabular-nums"
-          />
-          <span className="text-n-600">à</span>
-          <Input
-            inputMode="decimal"
-            value={maxAmount}
-            onChange={(e) => setMaxAmount(sanitizeAmountInput(e.target.value))}
-            placeholder="max"
-            aria-label="Montant maximum, en euros"
-            className="w-24 text-right tabular-nums"
-          />
-          <span className="text-n-600">€</span>
-          {(minAmount || maxAmount) && (
-            <button
-              type="button"
-              onClick={() => {
-                setMinAmount("");
-                setMaxAmount("");
-              }}
-              className="text-xs font-semibold text-accent-700 hover:underline"
-            >
-              Effacer
+      <section aria-label="Filtres" className="flex flex-col gap-4 rounded-card bg-surface p-4 shadow-card">
+        <header className="flex items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-n-700">
+            <SlidersHorizontal size={13} aria-hidden /> Filtres
+            {activeFilters > 0 && <span className="rounded-full bg-accent px-1.5 py-px text-[10px] text-on-accent tabular-nums">{activeFilters}</span>}
+          </h2>
+          {activeFilters > 0 && (
+            <button type="button" onClick={resetFilters} className="inline-flex items-center gap-1 text-xs font-semibold text-accent-700 hover:underline">
+              <RotateCcw size={12} aria-hidden /> Réinitialiser
             </button>
           )}
-        </div>
-        {reviewCount > 0 && (
-          <div className="self-start">
-            <Chip active={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
-              À vérifier ({reviewCount})
-            </Chip>
+        </header>
+
+        <label className="relative block">
+          <span className="sr-only">Rechercher</span>
+          <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-n-500" aria-hidden />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher un lieu, un commerçant, une note"
+            className="block min-h-11 w-full rounded-field border border-n-300 bg-n-100 pr-3 pl-9 text-base placeholder:text-n-500 focus:border-accent focus:bg-surface focus:outline-none md:text-sm"
+          />
+        </label>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-1">
+            <span className={filterLabel}>Type</span>
+            <Segmented
+              value={type}
+              onChange={setType}
+              className="w-full lg:w-auto"
+              options={[
+                { value: "all", label: "Tout" },
+                { value: "out", label: "Sorties" },
+                { value: "in", label: "Entrées" },
+                { value: "transfer", label: "Virements" },
+              ]}
+            />
           </div>
-        )}
-        <Segmented
-          value={type}
-          onChange={setType}
-          className="w-full md:w-auto md:self-start"
-          options={[
-            { value: "all", label: "Tout" },
-            { value: "out", label: "Sorties" },
-            { value: "in", label: "Entrées" },
-            { value: "transfer", label: "Virements" },
-          ]}
-        />
-        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 md:mx-0 md:px-0">
-          <Chip active={!accountId} onClick={() => setAccountId(null)}>
-            Tous comptes
-          </Chip>
-          {activeAccounts.map((a) => (
-            <Chip key={a.id} active={accountId === a.id} color={a.color} onClick={() => setAccountId(a.id)}>
-              {shortAccountName(a)}
-            </Chip>
-          ))}
+          <label className="flex flex-col gap-1.5">
+            <span className={filterLabel}>Catégorie</span>
+            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              <option value="">Toutes les catégories</option>
+              {activeCategories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <div className="flex flex-col gap-1.5">
+            <span className={filterLabel} id="amount-filter">
+              Montant
+            </span>
+            <div
+              role="group"
+              aria-labelledby="amount-filter"
+              className="flex min-h-11 items-center rounded-field border border-n-300 bg-surface focus-within:border-accent md:min-h-9"
+            >
+              <input
+                inputMode="decimal"
+                value={minAmount}
+                onChange={(e) => setMinAmount(sanitizeAmountInput(e.target.value))}
+                placeholder="min"
+                aria-label="Montant minimum, en euros"
+                className="min-w-0 flex-1 bg-transparent px-3 text-right text-base tabular-nums placeholder:text-n-500 focus:outline-none md:text-sm"
+              />
+              <span className="text-n-500" aria-hidden>
+                –
+              </span>
+              <input
+                inputMode="decimal"
+                value={maxAmount}
+                onChange={(e) => setMaxAmount(sanitizeAmountInput(e.target.value))}
+                placeholder="max"
+                aria-label="Montant maximum, en euros"
+                className="min-w-0 flex-1 bg-transparent px-3 text-right text-base tabular-nums placeholder:text-n-500 focus:outline-none md:text-sm"
+              />
+              <span className="pr-3 text-sm font-semibold text-n-600" aria-hidden>
+                €
+              </span>
+            </div>
+          </div>
         </div>
-      </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className={filterLabel}>Comptes</span>
+          <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:px-0">
+            <Chip active={!accountId} onClick={() => setAccountId(null)}>
+              Tous comptes
+            </Chip>
+            {activeAccounts.map((a) => (
+              <Chip key={a.id} active={accountId === a.id} color={a.color} onClick={() => setAccountId(a.id)}>
+                {shortAccountName(a)}
+              </Chip>
+            ))}
+            {reviewCount > 0 && (
+              <>
+                <span className="mx-1 w-px shrink-0 self-stretch bg-divider" aria-hidden />
+                <Chip active={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
+                  À vérifier ({reviewCount})
+                </Chip>
+              </>
+            )}
+          </div>
+        </div>
+      </section>
 
       <div className="flex items-center justify-between rounded-card bg-accent-100 px-4 py-3.5">
         <p className="text-sm text-n-800">

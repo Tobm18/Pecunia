@@ -36,8 +36,6 @@ export function merchantKey(label: string | null | undefined): string {
   s = s.replace(/\s\d+[.,]\d{2}\s?eur\b.*$/, "");
   // département et ville collés au commerçant (« grass06grasse », « 06mandelieu »)
   s = s.replace(/^(.{3,}?)\s?\d{2}[a-z][a-z\s'-]*$/, "$1");
-  // virement à une personne : le motif répété (« Virement de M Tom Ballester ») n'est pas le nom
-  s = s.replace(/\s(virement|vir\.?)\s(de|vers)\b.*$/, "");
   let prefix = "";
   if (/^prlv\s+sepa\s+/.test(s)) {
     prefix = "prlv ";
@@ -47,8 +45,14 @@ export function merchantKey(label: string | null | undefined): string {
     if (/^(envoi\s+)?wero\s+/.test(s)) {
       prefix = "wero ";
       s = s.replace(/^(envoi\s+)?wero\s+/, "");
-    } else prefix = "vir ";
+    } else {
+      prefix = "vir ";
+      // « Virement vers Mlle Chou », « Vir. vers M » : le destinataire suit (souvent tronqué, parfois absent)
+      s = s.replace(/^(virement|vir\.?)\s+vers\s+/, "");
+    }
   }
+  // virement à une personne : le motif répété (« Virement de M Tom Ballester ») n'est pas le nom
+  s = s.replace(/\s(virement|vir\.?)\s(de|vers)\b.*$/, "");
   const words: string[] = [];
   for (const raw of s.split(/[\s/*.,;:_()'"-]+/)) {
     if (!raw) continue;

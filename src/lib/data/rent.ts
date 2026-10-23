@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db, schema as s } from "@/lib/db";
 import { CONFIDENCE, merchantKey } from "@/lib/domain/categorize";
-import { allocateRent, type RentMode, type RentPeriod } from "@/lib/domain/rent";
+import { allocateRent, isUnnamedTransfer, matchesRecipient, recipientName, type RentMode, type RentPeriod } from "@/lib/domain/rent";
 
 /**
  * Loyer payé à un proche. Une règle (proche + catégorie) a un historique de périodes : chacune fixe
@@ -29,6 +29,8 @@ export interface RentRuleView {
   /** Premier et dernier virement au proche, pour situer les périodes */
   firstTransfer: string | null;
   lastTransfer: string | null;
+  /** Variantes du nom reconnues (la banque le tronque : « vir chou », « vir chouc »…) */
+  aliases: string[];
 }
 
 export interface Recipient {
@@ -80,19 +82,24 @@ export async function applyRentRules(userId: string): Promise<number> {
   await db.transaction(async (tx) => {
     await restoreSplits(userId, tx);
     if (!rules.length) return;
-    const rows = await tx
-      .select({ id: t.id, place: t.place, amount: t.amount_cents, date: t.date, accountId: t.account_id })
-      .from(t)
-      .where(and(eq(t.user_id, userId), eq(t.type, "out"), isNull(t.split_of)));
+    const rows = (
+      await tx
+        .select({ id: t.id, place: t.place, amount: t.amount_cents, date: t.date, accountId: t.account_id })
+        .from(t)
+        .where(and(eq(t.user_id, userId), eq(t.type, "out"), isNull(t.split_of)))
+    ).map((r) => ({ ...r, key: merchantKey(r.place) }));
+    // un virement ne compte que pour une règle (un virement sans nom peut correspondre à plusieurs)
+    const claimed = new Set<string>();
     for (const rule of rules) {
-      const lines = rows.filter((r) => merchantKey(r.place) === rule.merchant_key);
+      const lines = rows.filter((r) => !claimed.has(r.id) && (matchesRecipient(rule.merchant_key, r.key) || isUnnamedTransfer(r.key)));
       const parts = allocateRent(
-        lines.map((l) => ({ id: l.id, date: l.date, cents: -Number(l.amount) })),
+        lines.map((l) => ({ id: l.id, date: l.date, cents: -Number(l.amount), unnamed: isUnnamedTransfer(l.key) })),
         periods.get(rule.id) ?? [],
       );
       for (const line of lines) {
         const part = parts.get(line.id);
         if (!part) continue;
+        claimed.add(line.id);
         touched++;
         const amount = Number(line.amount);
         if (part >= -amount) {
@@ -141,8 +148,10 @@ export async function listRentRules(userId: string): Promise<RentRuleView[]> {
   ]);
   const byRule = new Map(stats.map((x) => [x.ruleId, x]));
   return rules.map((r) => {
-    const dates = rows.filter((x) => merchantKey(x.place) === r.merchant_key).map((x) => x.date).sort();
+    const matched = rows.filter((x) => matchesRecipient(r.merchant_key, merchantKey(x.place)));
+    const dates = matched.map((x) => x.date).sort();
     return {
+      aliases: [...new Set(matched.map((x) => merchantKey(x.place)))].sort(),
       id: r.id,
       merchantKey: r.merchant_key,
       categoryId: r.category_id,
@@ -171,7 +180,16 @@ export async function listRecipients(userId: string): Promise<Recipient[]> {
     entry.totalCents += Number(r.amount);
     byKey.set(key, entry);
   }
-  return [...byKey.values()].sort((a, b) => b.count - a.count).slice(0, 40);
+  // variantes tronquées d'un même nom (« vir chou », « vir chouchounne ») réunies sous le plus long
+  const groups: Recipient[] = [];
+  for (const r of [...byKey.values()].sort((a, b) => recipientName(b.merchantKey).length - recipientName(a.merchantKey).length)) {
+    const group = groups.find((g) => g.merchantKey.split(" ")[0] === r.merchantKey.split(" ")[0] && matchesRecipient(g.merchantKey, r.merchantKey));
+    if (group) {
+      group.count += r.count;
+      group.totalCents += r.totalCents;
+    } else groups.push({ ...r });
+  }
+  return groups.sort((a, b) => b.count - a.count).slice(0, 40);
 }
 
 async function ownedCategory(userId: string, categoryId: string) {

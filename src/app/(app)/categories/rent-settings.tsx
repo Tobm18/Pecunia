@@ -77,6 +77,12 @@ function RuleCard({ rule, categories, pending, run }: { rule: RentRuleView; cate
             {rule.firstTransfer && rule.lastTransfer && ` · virements du ${numericDate(rule.firstTransfer)} au ${numericDate(rule.lastTransfer)}`}
           </p>
           <p className="text-xs font-semibold text-accent-700">Aujourd&apos;hui : {current ? describeRentPeriod(current, (c) => formatCents(c)) : "pas de loyer"}</p>
+          {rule.aliases.length > 1 && (
+            <p className="text-[11px] text-n-600">Libellés reconnus : {rule.aliases.join(", ")}</p>
+          )}
+          <p className="text-[11px] text-n-600">
+            Virements sans nom (« VIR. VERS MLLE ») : comptés s&apos;ils font exactement le loyer d&apos;un mois pas encore payé.
+          </p>
         </div>
         <Select
           value={rule.categoryId}

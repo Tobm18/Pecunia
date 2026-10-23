@@ -132,3 +132,14 @@ describe("annuaire des entreprises", () => {
     expect(needsReview(null, null)).toBe(false);
   });
 });
+
+describe("virements à une personne", () => {
+  it.each([
+    ["VIR INST MLLE CHOUCHOUNNE Virement de M Tom Ballester-Virement", "vir chouchounne"],
+    ["VIR INST VIREMENT VERS MLLE CHOU Virement de M Tom Ballester-Virement de M Tom Ballester", "vir chou"],
+    ["VIR Virement vers Mlle Chouc Virement de M Tom Ballester-Virement de M Tom Ballester", "vir chouc"],
+    ["VIR INST VIR. VERS MLLE Vir. de M TOM BALLESTER Vir. de M TOM BALLESTER", "vir"],
+    ["VIR INST VIREMENT VERS M Virement de M Tom Ballester Virement de M Tom Ballester", "vir"],
+    ["VIR INST VIREMENT VERS BALLESTER Virement de M Tom Ballester", "vir ballester"],
+  ])("%s → %s", (label, key) => expect(merchantKey(label)).toBe(key));
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocateRent, periodAt, type RentPeriod } from "./rent";
+import { allocateRent, isUnnamedTransfer, matchesRecipient, periodAt, type RentPeriod } from "./rent";
 
 describe("allocateRent", () => {
   const lines = [
@@ -10,9 +10,36 @@ describe("allocateRent", () => {
   ];
   const since = (start: string, mode: RentPeriod["mode"], value: number): RentPeriod => ({ start, mode, value });
 
-  it("montant mensuel : les virements du mois comptent dans l'ordre jusqu'au montant", () => {
+  it("montant mensuel : les plus gros virements du mois comptent d'abord, jusqu'au montant", () => {
     const parts = allocateRent(lines, [since("2000-01-01", "monthly", 45000)]);
     expect(Object.fromEntries(parts)).toEqual({ a: 30000, b: 15000, d: 45000 });
+  });
+
+  it("le virement qui fait exactement le loyer passe avant les autres (octobre : 69 € puis 200 €)", () => {
+    const october = [
+      { id: "small", date: "2025-10-14", cents: 6900 },
+      { id: "rent", date: "2025-10-28", cents: 20000 },
+    ];
+    expect(Object.fromEntries(allocateRent(october, [since("2000-01-01", "monthly", 20000)]))).toEqual({ rent: 20000 });
+  });
+
+  it("virement sans nom : compté seulement s'il fait exactement le loyer d'un mois non payé", () => {
+    const periods = [since("2026-02-01", "monthly", 40000)];
+    const months = [
+      { id: "sept", date: "2026-09-25", cents: 40000, unnamed: true },
+      { id: "other", date: "2026-09-06", cents: 1299, unnamed: true },
+      { id: "aug-named", date: "2026-08-02", cents: 40000 },
+      { id: "aug-unnamed", date: "2026-08-27", cents: 40000, unnamed: true },
+    ];
+    expect(Object.fromEntries(allocateRent(months, periods))).toEqual({ sept: 40000, "aug-named": 40000 });
+  });
+
+  it("le montant exact sans nom passe avant un petit virement nommé (juillet : 135 € puis 400 €)", () => {
+    const july = [
+      { id: "small", date: "2026-07-05", cents: 13500 },
+      { id: "rent", date: "2026-07-28", cents: 40000, unnamed: true },
+    ];
+    expect(Object.fromEntries(allocateRent(july, [since("2026-02-01", "monthly", 40000)]))).toEqual({ rent: 40000 });
   });
 
   it("pourcentage de chaque virement", () => {
@@ -39,5 +66,16 @@ describe("allocateRent", () => {
     const periods = [since("2026-01-01", "monthly", 1), since("2026-06-01", "monthly", 2)];
     expect(periodAt(periods, "2025-12-31")).toBeNull();
     expect(periodAt(periods, "2026-06-01")?.value).toBe(2);
+  });
+});
+
+describe("destinataire", () => {
+  it("nom tronqué par la banque : reconnu", () => {
+    expect(matchesRecipient("vir chouchounne", "vir chou")).toBe(true);
+    expect(matchesRecipient("vir chouchounne", "vir chouc")).toBe(true);
+    expect(matchesRecipient("vir chou", "vir chouchounne")).toBe(true);
+    expect(matchesRecipient("vir chouchounne", "vir dalert manon")).toBe(false);
+    expect(matchesRecipient("vir chouchounne", "vir")).toBe(false);
+    expect(isUnnamedTransfer("vir")).toBe(true);
   });
 });
