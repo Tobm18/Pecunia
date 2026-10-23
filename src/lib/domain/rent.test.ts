@@ -12,7 +12,31 @@ describe("allocateRent", () => {
 
   it("montant mensuel : les plus gros virements du mois comptent d'abord, jusqu'au montant", () => {
     const parts = allocateRent(lines, [since("2000-01-01", "monthly", 45000)]);
+    // septembre : 300 + 150 ; le surplus de b (100) et c rattrapent rien (octobre payé par d)
     expect(Object.fromEntries(parts)).toEqual({ a: 30000, b: 15000, d: 45000 });
+  });
+
+  it("loyer payé d'avance : le surplus de mars couvre avril sans virement", () => {
+    const spring = [
+      { id: "mar-rent", date: "2025-03-05", cents: 20000 },
+      { id: "mar-extra", date: "2025-03-30", cents: 30000 },
+      { id: "may", date: "2025-05-27", cents: 20000 },
+    ];
+    expect(Object.fromEntries(allocateRent(spring, [since("2000-01-01", "monthly", 20000)]))).toEqual({
+      "mar-rent": 20000,
+      "mar-extra": 20000,
+      may: 20000,
+    });
+  });
+
+  it("rattrapage : un gros virement complète le loyer incomplet du mois précédent", () => {
+    const winter = [
+      { id: "jan", date: "2026-01-27", cents: 17000 },
+      { id: "feb", date: "2026-02-04", cents: 91300 },
+      { id: "mar", date: "2026-03-27", cents: 40000 },
+    ];
+    const periods = [since("2024-12-01", "monthly", 20000), since("2026-02-01", "monthly", 40000)];
+    expect(Object.fromEntries(allocateRent(winter, periods))).toEqual({ jan: 17000, feb: 43000, mar: 40000 });
   });
 
   it("le virement qui fait exactement le loyer passe avant les autres (octobre : 69 € puis 200 €)", () => {
