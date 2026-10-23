@@ -61,6 +61,8 @@ export interface Transaction {
   categorySource?: string | null;
   /** Score de confiance de la catégorie, 0 à 100 */
   categoryConfidence?: number | null;
+  /** Part détachée d'un virement (loyer payé à un proche) : id du virement d'origine */
+  splitOf?: string | null;
 }
 
 export interface Profile {

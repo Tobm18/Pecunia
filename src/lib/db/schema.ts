@@ -198,6 +198,9 @@ export const transactions = pgTable("transactions", {
   /** Origine de la catégorie (manual, learned, rule, directory…) et score de confiance (0 à 100) */
   category_source: text("category_source"),
   category_confidence: smallint("category_confidence"),
+  /** Part détachée d'un virement (loyer payé à un proche) et règle qui l'a produite */
+  split_of: uuid("split_of"),
+  rent_rule_id: uuid("rent_rule_id"),
   created_at: ts("created_at").notNull().defaultNow(),
 });
 
@@ -290,6 +293,17 @@ export const merchantRules = pgTable("merchant_rules", {
   category_id: uuid("category_id").notNull(),
   created_at: ts("created_at").notNull().defaultNow(),
   updated_at: ts("updated_at").notNull().defaultNow(),
+});
+
+/** Loyer payé à un proche : part de ses virements comptée en loyer. */
+export const rentRules = pgTable("rent_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: uuid("user_id").notNull(),
+  merchant_key: text("merchant_key").notNull(),
+  mode: text("mode", { enum: ["monthly", "percent"] }).notNull(),
+  value: integer("value").notNull(),
+  category_id: uuid("category_id").notNull(),
+  created_at: ts("created_at").notNull().defaultNow(),
 });
 
 /** Cache de l'annuaire des entreprises (SIRENE) par commerçant + département. */

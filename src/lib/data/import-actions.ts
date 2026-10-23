@@ -81,6 +81,16 @@ function rowsFor(item: ImportItem, transferId: string): NewRow[] {
 const CHUNK = 500;
 
 /**
+ * Virements découpés (part loyer détachée) recomposés : comparés à un relevé, ils doivent avoir
+ * leur montant d'origine, sinon ils ne seraient plus reconnus comme déjà enregistrés.
+ */
+function foldSplits(txs: Transaction[]): Transaction[] {
+  const parts = new Map<string, number>();
+  for (const t of txs) if (t.splitOf) parts.set(t.splitOf, (parts.get(t.splitOf) ?? 0) + t.amountCents);
+  return txs.filter((t) => !t.splitOf).map((t) => (parts.has(t.id) ? { ...t, amountCents: t.amountCents + parts.get(t.id)! } : t));
+}
+
+/**
  * Lignes enregistrées (tous comptes) sur une période : repérage des doublons sur le compte
  * importé et des mouvements à relier sur les autres comptes.
  */
@@ -88,7 +98,7 @@ export async function getLinesInRange(from: string, to: string): Promise<Existin
   if (!isValidIsoDate(from) || !isValidIsoDate(to)) return [];
   // marge de 3 jours : un virement peut être daté du jour de l'autre compte
   const shift = (d: string, days: number) => new Date(Date.parse(`${d}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
-  const txs = await getTransactions({ from: shift(from, -3), to: shift(to, 3) });
+  const txs = foldSplits(await getTransactions({ from: shift(from, -3), to: shift(to, 3) }));
   return txs.map((t) => ({
     id: t.id,
     accountId: t.accountId,
@@ -155,7 +165,7 @@ export async function importTransactions(input: ImportPayload): Promise<ImportRe
 
   // Doublons : lignes existantes sur la même période, comptées (deux achats identiques le même jour restent possibles)
   const dates = items.map((i) => i.date).sort();
-  const existing = await getTransactions({ from: dates[0], to: dates[dates.length - 1] });
+  const existing = foldSplits(await getTransactions({ from: dates[0], to: dates[dates.length - 1] }));
   const counts = new Map<string, number>();
   for (const t of existing) {
     const key = dedupeKey(t.accountId, t.date, t.amountCents, t.place);

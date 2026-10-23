@@ -56,6 +56,7 @@ export const toTransaction = (r: Row): Transaction => ({
   createdAt: iso(r.created_at) ?? "",
   categorySource: r.category_source ?? null,
   categoryConfidence: r.category_confidence ?? null,
+  splitOf: r.split_of ?? null,
 });
 
 export const toProfile = (r: Row): Profile => ({

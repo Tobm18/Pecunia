@@ -1,16 +1,18 @@
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { countToReview } from "@/lib/data/categorize";
+import { listRecipients, listRentRules } from "@/lib/data/rent";
 import { getAppData, getBudgets, getSession } from "@/lib/data/queries";
 import { effectiveBudgetCents } from "@/lib/domain/budgets";
 import { Banner, PageHeader, buttonClass } from "@/components/ui/primitives";
 import { CategoriesManager } from "./categories-manager";
+import { RentSettings } from "./rent-settings";
 
 export const metadata = { title: "Catégories" };
 
 export default async function CategoriesPage() {
   const [{ profile, categories }, budgets, { user }] = await Promise.all([getAppData(), getBudgets(), getSession()]);
-  const toReview = await countToReview(user.id);
+  const [toReview, rentRules, recipients] = await Promise.all([countToReview(user.id), listRentRules(user.id), listRecipients(user.id)]);
   const budgetByCategory = Object.fromEntries(
     budgets.map((b) => [b.categoryId, effectiveBudgetCents(b, profile.referenceIncomeCents)]),
   );
@@ -40,6 +42,7 @@ export default async function CategoriesPage() {
         </Banner>
       )}
       <CategoriesManager categories={categories} budgetByCategory={budgetByCategory} />
+      <RentSettings rules={rentRules} recipients={recipients} categories={categories} />
     </>
   );
 }

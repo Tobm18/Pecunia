@@ -215,11 +215,20 @@ export async function deleteTransaction(id: string): Promise<ActionResult> {
   const t = s.transactions;
   try {
     const [existing] = await db
-      .select({ transfer_id: t.transfer_id })
+      .select({ transfer_id: t.transfer_id, split_of: t.split_of, amount: t.amount_cents })
       .from(t)
       .where(and(eq(t.id, id), eq(t.user_id, user.id)));
     const target = existing?.transfer_id ? eq(t.transfer_id, existing.transfer_id) : eq(t.id, id);
-    await db.delete(t).where(and(target, eq(t.user_id, user.id)));
+    await db.transaction(async (tx) => {
+      // part loyer d'un virement : son montant revient au virement, le solde du compte ne change pas
+      if (existing?.split_of) {
+        await tx
+          .update(t)
+          .set({ amount_cents: sql`${t.amount_cents} + ${Number(existing.amount)}` })
+          .where(and(eq(t.id, existing.split_of), eq(t.user_id, user.id)));
+      }
+      await tx.delete(t).where(and(target, eq(t.user_id, user.id)));
+    });
   } catch {
     return fail("Suppression impossible, réessaie dans un instant.");
   }

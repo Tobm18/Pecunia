@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { db, schema as s } from "@/lib/db";
 import {
   categoryNameKey,
@@ -18,6 +18,7 @@ import {
 } from "@/lib/domain/categorize";
 import { createCategorizer, type DirectoryHits } from "@/lib/domain/csv-import";
 import { lookupMerchant } from "@/lib/directory";
+import { applyRentRules } from "./rent";
 import { toCategory } from "./mappers";
 
 /**
@@ -58,13 +59,20 @@ async function loadCategorizer(userId: string) {
   return { cats, hits, learned, categorizer: createCategorizer(cats, [], learned, hits) };
 }
 
-/** Lignes automatiques (tout sauf « manual ») d'un utilisateur. */
+/** Lignes automatiques d'un utilisateur : ni manuelles, ni comptées en loyer (règle de loyer). */
 function automaticRows(userId: string) {
   const t = s.transactions;
   return db
     .select({ id: t.id, place: t.place, amount: t.amount_cents, categoryId: t.category_id, source: t.category_source, confidence: t.category_confidence })
     .from(t)
-    .where(and(eq(t.user_id, userId), inArray(t.type, ["in", "out"]), or(isNull(t.category_source), ne(t.category_source, "manual"))));
+    .where(
+      and(
+        eq(t.user_id, userId),
+        inArray(t.type, ["in", "out"]),
+        isNull(t.split_of),
+        or(isNull(t.category_source), notInArray(t.category_source, ["manual", "rent"])),
+      ),
+    );
 }
 
 /** Recherches dans l'annuaire, quelques-unes à la fois (l'API limite le débit). */
@@ -97,6 +105,8 @@ async function lookupMany(places: { key: string; place: NonNullable<ReturnType<t
  * classement n'est pas plus sûr, marquée à vérifier.
  */
 export async function autoCategorize(userId: string, { lookupBudget = 150 } = {}): Promise<{ updated: number; lookedUp: number; toReview: number }> {
+  // loyer payé à un proche : parts détachées d'abord, elles ne sont pas reclassées ensuite
+  await applyRentRules(userId);
   let { cats, hits, categorizer } = await loadCategorizer(userId);
   const rows = await automaticRows(userId);
   const autres = cats.find((c) => !c.archivedAt && categoryNameKey(c.name) === "autres")?.id ?? null;

@@ -1,6 +1,7 @@
 import {
   ArrowLeftRight,
   Baby,
+  Beer,
   Book,
   BriefcaseBusiness,
   Bus,
@@ -64,6 +65,7 @@ const ICONS: Record<string, LucideIcon> = {
   donate: HandHeart,
   refund: Undo2,
   sport: Dumbbell,
+  beer: Beer,
   transfer: ArrowLeftRight,
   adjust: SlidersHorizontal,
   circle: Circle,

@@ -17,7 +17,7 @@ const normalize = (s: string) =>
     .trim();
 
 /** Mots sans valeur pour reconnaître un commerçant (formes juridiques, articles…) */
-const STOPWORDS = new Set(["sas", "sarl", "sa", "eurl", "sc", "sci", "snc", "the", "le", "la", "les", "de", "du", "des", "et", "e", "fr", "eu"]);
+const STOPWORDS = new Set(["sas", "sarl", "sa", "eurl", "sc", "sci", "snc", "the", "le", "la", "les", "de", "du", "des", "et", "e", "fr", "eu", "mr", "mme", "mlle", "melle", "mle"]);
 
 /**
  * Clé commerçant d'un libellé (minuscules, sans accents), stable d'une ligne à l'autre :
@@ -86,6 +86,7 @@ export interface SuggestedCategory {
 
 /** Catégories proposées quand des transactions leur correspondent et qu'elles n'existent pas encore. */
 export const SUGGESTED_CATEGORIES: SuggestedCategory[] = [
+  { name: "Bar", icon: "beer", color: "#e0a030", isIncome: false },
   { name: "Shopping", icon: "bag", color: "#5b6bd6", isIncome: false },
   { name: "Assurances", icon: "shield", color: "#2f3a4f", isIncome: false },
   { name: "Frais bancaires", icon: "bank", color: "#c0504d", isIncome: false },
@@ -109,6 +110,8 @@ export const CATEGORY_RULES: [string, RegExp][] = [
   ["Impôts & amendes", /amende|\bantai\b|\bimpot|dgfip|tresor public|\btaxe\b|urssaf|fourriere/],
   ["Retraits d'espèces", /\bret dab\b|retrait|\bdab\b|distributeur/],
   ["Virements à des proches", /\bwero\b|lydia|envoi wero|virement vers|vir\.? vers|^vir (inst )?(m|mme|mlle|mr|melle)\.? /],
+  // bars avant les restaurants ; sans catégorie « Bar », ils retombent dans « Restaurants »
+  ["Bar", /\bbar\b|\bpub\b|beers?\b|biere|brasserie|brasseu|brewdog|tapas|delirium|sunbar|barstool|guinguette|cocktail|lounge|\bcaves?\b|taverne|irish/],
   ["Restaurants", /uber ?eats|deliveroo|just eat|resto|restau|ristorante|osteria|trattoria|pizz|burger|kfc|mcdo|mc ?donald|five guys|subway|kebab|sushi|cafet|\bcafe\b|coffee|coffe|\bbar\b|brasserie|brasseur|pub\b|creperie|crepes?\b|snack|gelateria|glacier|boulangerie|boul\b|viennoiserie|patisserie|beers?\b|biere|tapas|bistro|cantine|crous|bateleur|delirium|naga|sunbar|barstool|guinguette|gourmand|bouf+e?\b|miam\b|carte tr\b|ticket resto|traiteur|starbucks|columbus|paul\b|brioche doree|izly|smoney|fournil|naan|curry|\brest\b|bistrot|brasseu|\bchez\b|kiosque|glaces?\b|food|grill|wok|ramen|poke|tacos|o.tacos/],
   ["Courses", /carr+efour|leclerc|intermarche|lidl|aldi|monoprix|franprix|auchan|casino|super ?u\b|hyper|superstore|biocoop|picard|grand frais|netto|leader price|spar\b|vival|cocci|proxi\b|\bg20\b|bio c bon|naturalia|la vie claire|asia market|market\b|primeur|boucherie|fromagerie|too good to go|marche\b|epicerie|drive\b|supermarche/],
   ["Transport", /essence|carburant|gasoil|diesel|petrol|station|pbp_|peage|telepeage|autoroute|escota|vinci autoroute|\baprr\b|sanef|\basf\b|\batmb\b|\barea\b|sitaf|cofiroute|parking|parcheggio|stationnement|paybyphone|easypark|\bpbp\b|indigo|effia|saemes|q.park|onepark|keolis|\btfl\b|reseau mistral|zou\b|envibus|palmbus|\btotal\b|sncf|ouigo|\btgv\b|\bter\b|flixbus|blablacar|\buber\b|bolt|taxi|\bvtc\b|metro|\bbus\b|lignes d.azur|tisseo|navigo|ratp|tram|train|avion|ryanair|easyjet|transavia|velo|ridemovi|lime\b|garage|carwash|lavage|controle technique|securitest|dekra|autosur|pneu|norauto|feu vert|midas|speedy|total ?energies|\besso\b|\bavia\b|shell|dyneff/],
@@ -154,7 +157,8 @@ const NAF_RULES: [RegExp, string][] = [
   [/^47\.(11|2)/, "Courses"], // supermarchés, alimentation spécialisée
   [/^47\.91/, "Shopping"], // vente à distance
   [/^47\./, "Shopping"], // autres commerces de détail
-  [/^56\./, "Restaurants"], // restauration, débits de boissons
+  [/^56\.30/, "Bar"], // débits de boissons
+  [/^56\./, "Restaurants"], // restauration
   [/^(49|50|51)\./, "Transport"], // transports
   [/^52\.2/, "Transport"], // autoroutes, parkings, gares
   [/^45\.(2|3)/, "Transport"], // entretien et pièces auto
@@ -244,7 +248,7 @@ export function directoryMatchScore(
 // ---------------------------------------------------------------------------
 
 /** Origine d'une catégorie : saisie ou validée à la main, ou devinée automatiquement */
-export type CategorySource = "manual" | "learned" | "memory" | "rule" | "directory" | "fallback" | "legacy";
+export type CategorySource = "manual" | "learned" | "memory" | "rule" | "directory" | "fallback" | "legacy" | "rent";
 
 /** En dessous de ce score, une catégorie automatique est à vérifier */
 export const REVIEW_BELOW = 70;
@@ -256,6 +260,7 @@ export const CONFIDENCE: Record<Exclude<CategorySource, "directory">, number> = 
   rule: 75,
   legacy: 60,
   fallback: 0,
+  rent: 100,
 };
 
 export const SOURCE_LABELS: Record<CategorySource, string> = {
@@ -266,6 +271,7 @@ export const SOURCE_LABELS: Record<CategorySource, string> = {
   directory: "annuaire des entreprises",
   fallback: "aucun indice",
   legacy: "ancien classement",
+  rent: "règle de loyer",
 };
 
 /** Une catégorie automatique est-elle à vérifier ? (une saisie manuelle ne l'est jamais) */
