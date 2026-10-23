@@ -382,3 +382,78 @@ export async function confirmTransactionCategory(userId: string, transactionId: 
   if (row?.categoryId) await learnMerchant(userId, row.place, row.categoryId);
   return !!row;
 }
+
+// ---------------------------------------------------------------------------
+// Reclassement en masse
+// ---------------------------------------------------------------------------
+
+/**
+ * Lignes similaires à une transaction : même commerçant (clé commerçant) et même sens, hors parts
+ * de loyer. La transaction elle-même est comprise.
+ */
+export async function similarTransactions(userId: string, transactionId: string): Promise<{ merchantKey: string; ids: string[] }> {
+  const t = s.transactions;
+  const [tx] = await db
+    .select({ place: t.place, amount: t.amount_cents, type: t.type })
+    .from(t)
+    .where(and(eq(t.id, transactionId), eq(t.user_id, userId)));
+  if (!tx || (tx.type !== "in" && tx.type !== "out")) return { merchantKey: "", ids: [] };
+  const key = merchantKey(tx.place);
+  if (!key) return { merchantKey: "", ids: [transactionId] };
+  const rows = await db
+    .select({ id: t.id, place: t.place })
+    .from(t)
+    .where(
+      and(
+        eq(t.user_id, userId),
+        eq(t.type, tx.type),
+        isNull(t.split_of),
+        or(isNull(t.category_source), ne(t.category_source, "rent")),
+      ),
+    );
+  return { merchantKey: key, ids: rows.filter((r) => merchantKey(r.place) === key).map((r) => r.id) };
+}
+
+/**
+ * Reclasse des lignes à la main (elles passent en « manuel ») et retient la catégorie pour chacun
+ * de leurs commerçants : les prochaines lignes suivront. Renvoie le nombre de lignes modifiées.
+ */
+export async function recategorize(userId: string, ids: string[], categoryId: string): Promise<number> {
+  if (!ids.length) return 0;
+  const [category] = await db
+    .select({ id: s.categories.id })
+    .from(s.categories)
+    .where(and(eq(s.categories.id, categoryId), eq(s.categories.user_id, userId)));
+  if (!category) throw new Error("catégorie inconnue");
+  const t = s.transactions;
+  let changed = 0;
+  const places = new Set<string>();
+  await db.transaction(async (tx) => {
+    for (let i = 0; i < ids.length; i += 500) {
+      const done = await tx
+        .update(t)
+        .set({ category_id: category.id, category_source: "manual", category_confidence: CONFIDENCE.manual })
+        .where(
+          and(
+            eq(t.user_id, userId),
+            inArray(t.id, ids.slice(i, i + 500)),
+            inArray(t.type, ["in", "out"]),
+            // une part de loyer suit sa règle, pas un reclassement
+            or(isNull(t.category_source), ne(t.category_source, "rent")),
+          ),
+        )
+        .returning({ place: t.place });
+      changed += done.length;
+      for (const d of done) if (d.place) places.add(d.place);
+    }
+    const r = s.merchantRules;
+    const keys = new Set([...places].map((p) => merchantKey(p)).filter(Boolean));
+    for (const key of keys) {
+      await tx
+        .insert(r)
+        .values({ user_id: userId, merchant_key: key, category_id: category.id })
+        .onConflictDoUpdate({ target: [r.user_id, r.merchant_key], set: { category_id: category.id, updated_at: new Date() } });
+    }
+  });
+  return changed;
+}

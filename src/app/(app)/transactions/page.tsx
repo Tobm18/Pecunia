@@ -26,7 +26,7 @@ export default async function TransactionsPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const params = await searchParams;
-  const { profile, accounts } = await getAppData();
+  const { profile, accounts, categories } = await getAppData();
   const mode: PeriodMode = (["3m", "12m", "tout", "dates"] as const).find((m) => m === params.periode) ?? "mois";
   const { month, current } = resolveMonth(params.mois, profile.monthStartDay);
   const today = todayIso();
@@ -43,6 +43,7 @@ export default async function TransactionsPage({
   // lignes pas encore classées automatiquement (nouvelles, ou d'avant ce classement) : il tourne après l'affichage
   if ((await countUnprocessed(user.id)) > 0) after(() => autoCategorize(user.id).catch(() => undefined));
   const initialAccount = accounts.some((a) => a.id === params.compte) ? params.compte! : null;
+  const initialCategory = categories.some((c) => c.id === params.categorie) ? params.categorie! : null;
   const rangeLabel =
     mode === "dates"
       ? [range.from ? `du ${longDayMonth(range.from)} ${range.from.slice(0, 4)}` : null, range.to ? `au ${longDayMonth(range.to)} ${range.to.slice(0, 4)}` : null]
@@ -79,7 +80,7 @@ export default async function TransactionsPage({
       ) : (
         <h2 className="text-xl font-extrabold md:text-2xl">{rangeLabel}</h2>
       )}
-      <TransactionsView key={`${mode}-${month}-${range.from}-${range.to}`} transactions={txs} initialAccount={initialAccount} />
+      <TransactionsView key={`${mode}-${month}-${range.from}-${range.to}`} transactions={txs} initialAccount={initialAccount} initialCategory={initialCategory} />
     </div>
   );
 }

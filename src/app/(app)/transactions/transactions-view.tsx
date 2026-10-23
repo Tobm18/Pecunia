@@ -1,9 +1,11 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { recategorizeTransactions } from "@/lib/data/categorize-actions";
+import { Modal, useToast } from "@/components/ui/overlay";
 import { useAppData } from "@/components/app/app-data";
-import { Chip, EmptyState, Segmented, Select } from "@/components/ui/primitives";
+import { Button, Chip, EmptyState, Segmented, Select } from "@/components/ui/primitives";
 import { Amount } from "@/components/ui/money";
 import { dayLabel } from "@/lib/domain/dates";
 import { formatCents } from "@/lib/domain/money";
@@ -21,12 +23,21 @@ type TypeFilter = "all" | "out" | "in" | "transfer";
 /** Lignes affichées d'un coup (« Afficher plus » ajoute le paquet suivant) */
 const PAGE = 200;
 
-export function TransactionsView({ transactions, initialAccount }: { transactions: Transaction[]; initialAccount: string | null }) {
+export function TransactionsView({
+  transactions,
+  initialAccount,
+  initialCategory = null,
+}: {
+  transactions: Transaction[];
+  initialAccount: string | null;
+  /** Catégorie filtrée à l'ouverture (lien « Voir ses transactions » de la page Catégories) */
+  initialCategory?: string | null;
+}) {
   const { activeAccounts, activeCategories, categoryById, accountById } = useAppData();
   const [search, setSearch] = useState("");
   const [accountId, setAccountId] = useState<string | null>(initialAccount);
   const [type, setType] = useState<TypeFilter>("all");
-  const [categoryId, setCategoryId] = useState<string>("");
+  const [categoryId, setCategoryId] = useState<string>(initialCategory ?? "");
   const [reviewOnly, setReviewOnly] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
 
@@ -47,6 +58,28 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
   const reviewCount = useMemo(() => transactions.filter((t) => needsReview(t.categorySource, t.categoryConfidence)).length, [transactions]);
 
   const total = signedTotal(filtered, accountId);
+  // reclassement en masse : les dépenses / recettes affichées quand un filtre est actif
+  const filtering = !!search.trim() || !!categoryId || reviewOnly;
+  const bulkTargets = filtering ? filtered.filter((t) => (t.type === "out" || t.type === "in") && t.categorySource !== "rent" && !t.splitOf) : [];
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkCategory, setBulkCategory] = useState("");
+  const [bulkPending, startBulk] = useTransition();
+  const toast = useToast();
+  const bulkHasIncome = bulkTargets.some((t) => t.type === "in");
+
+  function applyBulk() {
+    if (!bulkCategory) return;
+    startBulk(async () => {
+      const r = await recategorizeTransactions(
+        bulkTargets.map((t) => t.id),
+        bulkCategory,
+      );
+      startBulk(() => {
+        toast(r.ok ? `${r.data.changed} ligne${r.data.changed > 1 ? "s" : ""} reclassée${r.data.changed > 1 ? "s" : ""}` : r.error, r.ok ? "success" : "error");
+        if (r.ok) setBulkOpen(false);
+      });
+    });
+  }
   // rendu par paquets : une longue période (tout l'historique) reste fluide ; le total porte sur tout
   const [shown, setShown] = useState(PAGE);
   const filterKey = `${search}|${accountId}|${type}|${categoryId}|${reviewOnly}`;
@@ -72,7 +105,7 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
               className="block min-h-11 w-full rounded-[10px] border border-n-300 bg-surface pr-3 pl-9 text-base placeholder:text-n-500 focus:border-accent focus:outline-none md:min-h-9 md:text-sm"
             />
           </label>
-          <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} aria-label="Catégorie" className="hidden md:block">
+          <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} aria-label="Catégorie">
             <option value="">Toutes les catégories</option>
             {activeCategories.map((c) => (
               <option key={c.id} value={c.id}>
@@ -120,6 +153,50 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
           {formatCents(total, total > 0 ? "always" : "auto")}
         </p>
       </div>
+      {bulkTargets.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            setBulkCategory("");
+            setBulkOpen(true);
+          }}
+          className="self-start text-sm font-semibold text-accent-700 hover:underline"
+        >
+          Reclasser ces {bulkTargets.length} ligne{bulkTargets.length > 1 ? "s" : ""}…
+        </button>
+      )}
+      <Modal
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        title={`Reclasser ${bulkTargets.length} ligne${bulkTargets.length > 1 ? "s" : ""}`}
+        footer={
+          <>
+            <Button onClick={() => setBulkOpen(false)}>Annuler</Button>
+            <Button variant="primary" onClick={applyBulk} loading={bulkPending} disabled={!bulkCategory}>
+              Reclasser
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3 text-sm">
+          <p>
+            Toutes les dépenses et recettes affichées par ce filtre vont dans la catégorie choisie. Pecunia retient ce choix pour leurs commerçants : les
+            prochaines lignes suivront.
+          </p>
+          <Select value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} aria-label="Nouvelle catégorie">
+            <option value="">Choisir une catégorie…</option>
+            {activeCategories
+              .filter((c) => bulkHasIncome || !c.isIncome)
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.isIncome ? " (revenu)" : ""}
+                </option>
+              ))}
+          </Select>
+          <p className="text-xs text-n-600">Les virements internes et les parts de loyer ne sont pas concernés.</p>
+        </div>
+      </Modal>
 
       {groups.length === 0 ? (
         <EmptyState>Aucune transaction ne correspond à ces filtres.</EmptyState>

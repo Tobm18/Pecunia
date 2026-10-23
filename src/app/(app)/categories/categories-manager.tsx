@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, List } from "lucide-react";
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { createCategory, moveCategory, setCategoryArchived, updateCategory } from "@/lib/data/actions";
 import { CATEGORY_ICONS, PALETTE } from "@/lib/domain/defaults";
@@ -99,6 +100,14 @@ export function CategoriesManager({
                   {c.isIncome ? "Entrée" : budgetByCategory[c.id] !== undefined ? formatCents(budgetByCategory[c.id]!) : "-"}
                 </span>
               </button>
+              <Link
+                href={`/transactions?periode=tout&categorie=${c.id}`}
+                className="flex size-10 items-center justify-center rounded-lg text-n-600 hover:bg-n-100"
+                aria-label={`Voir les transactions ${c.name}`}
+                title="Voir ses transactions"
+              >
+                <List size={17} />
+              </Link>
               <button
                 type="button"
                 disabled={i === 0 || pending}

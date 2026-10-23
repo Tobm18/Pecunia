@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { deleteTransaction, updateTransaction } from "@/lib/data/actions";
-import { confirmCategory } from "@/lib/data/categorize-actions";
+import { applyCategoryToSimilar, confirmCategory, getSimilarCount } from "@/lib/data/categorize-actions";
 import { needsReview, SOURCE_LABELS, type CategorySource } from "@/lib/domain/categorize";
 import { centsToInput, parseAmountToCents, sanitizeAmountInput } from "@/lib/domain/money";
 import { needsNature, type EntryInput, type EntryKind } from "@/lib/domain/entries";
@@ -60,6 +60,22 @@ export function EditTransactionModal({
     setConfirmDelete(false);
   }, [tx, transactions]);
 
+  // lignes du même commerçant (même sens) : la nouvelle catégorie peut leur être appliquée d'un coup
+  const [similar, setSimilar] = useState<{ merchantKey: string; count: number } | null>(null);
+  const [applySimilar, setApplySimilar] = useState(true);
+  useEffect(() => {
+    setSimilar(null);
+    setApplySimilar(true);
+    if (!tx || (tx.type !== "out" && tx.type !== "in")) return;
+    let cancelled = false;
+    getSimilarCount(tx.id)
+      .then((r) => !cancelled && r.ok && setSimilar(r.data))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [tx]);
+
   if (!tx || !form) return null;
   const isAdjust = tx.type === "adjust";
   const set = (patch: Partial<EntryInput>) => setForm({ ...form, ...patch });
@@ -74,16 +90,22 @@ export function EditTransactionModal({
   ];
   const categories = activeCategories.filter((c) => form.kind === "in" || !c.isIncome);
   const automatic = (tx.type === "out" || tx.type === "in") && !!tx.categorySource && tx.categorySource !== "manual";
+  // catégorie changée sur une ligne qui a des semblables (même commerçant) : proposer de les reclasser aussi
+  const offerSimilar =
+    !!similar && similar.count > 1 && form.kind === (tx.type === "out" ? "out" : "in") && !!form.categoryId && form.categoryId !== tx.categoryId;
   const review = automatic && needsReview(tx.categorySource, tx.categoryConfidence);
 
   function save() {
     setError(null);
     setAction("save");
+    const toSimilar = offerSimilar && applySimilar ? form!.categoryId : null;
     startTransition(async () => {
       const result = await updateTransaction(tx!.id, form!);
+      if (!result.ok) return startTransition(() => setError(result.error));
+      const bulk = toSimilar ? await applyCategoryToSimilar(tx!.id, toSimilar) : null;
       startTransition(() => {
-        if (!result.ok) return setError(result.error);
-        toast("Transaction modifiée");
+        if (bulk && !bulk.ok) return setError(bulk.error);
+        toast(bulk?.ok ? `${bulk.data.changed} lignes reclassées` : "Transaction modifiée");
         onClose();
       });
     });
@@ -208,6 +230,16 @@ export function EditTransactionModal({
               </div>
             )}
           </div>
+          {offerSimilar && (
+            <label className="flex items-start gap-2 rounded-xl bg-accent-100 px-3 py-2.5 text-sm">
+              <input type="checkbox" checked={applySimilar} onChange={(e) => setApplySimilar(e.target.checked)} className="mt-0.5" />
+              <span>
+                Appliquer aussi aux <strong>{similar!.count - 1}</strong> autre{similar!.count > 2 ? "s" : ""} ligne{similar!.count > 2 ? "s" : ""} de «{" "}
+                {similar!.merchantKey} »
+                <span className="block text-xs text-n-700">Les prochaines lignes de ce commerçant iront aussi dans cette catégorie.</span>
+              </span>
+            </label>
+          )}
           {automatic && (
             <Banner
               tone={review ? "warn" : "info"}

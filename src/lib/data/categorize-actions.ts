@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { z } from "zod";
-import { autoCategorize, confirmTransactionCategory, createSuggestedCategories, validateMerchants } from "./categorize";
+import { autoCategorize, confirmTransactionCategory, createSuggestedCategories, recategorize, similarTransactions, validateMerchants } from "./categorize";
 import { getSession } from "./queries";
 
 /** Actions du classement : catégories proposées, validation des lignes à vérifier. */
@@ -57,4 +57,42 @@ export async function confirmCategory(transactionId: string): Promise<ActionResu
   after(() => autoCategorize(user.id, { lookupBudget: 0 }).catch(() => undefined));
   refresh();
   return { ok: true, data: undefined };
+}
+
+/** Nombre de lignes similaires (même commerçant, même sens) à une transaction, elle comprise. */
+export async function getSimilarCount(transactionId: string): Promise<ActionResult<{ merchantKey: string; count: number }>> {
+  if (!z.string().uuid().safeParse(transactionId).success) return { ok: false, error: "Ligne inconnue." };
+  const { user } = await getSession();
+  const { merchantKey, ids } = await similarTransactions(user.id, transactionId);
+  return { ok: true, data: { merchantKey, count: ids.length } };
+}
+
+/** Applique une catégorie à toutes les lignes similaires à une transaction (même commerçant, même sens). */
+export async function applyCategoryToSimilar(transactionId: string, categoryId: string): Promise<ActionResult<{ changed: number }>> {
+  if (!z.string().uuid().safeParse(transactionId).success || !z.string().uuid().safeParse(categoryId).success) {
+    return { ok: false, error: "Choix invalide." };
+  }
+  const { user } = await getSession();
+  try {
+    const { ids } = await similarTransactions(user.id, transactionId);
+    const changed = await recategorize(user.id, ids, categoryId);
+    refresh();
+    return { ok: true, data: { changed } };
+  } catch {
+    return { ok: false, error: "Reclassement impossible, réessaie dans un instant." };
+  }
+}
+
+/** Reclasse une liste de lignes (résultat d'une recherche ou d'un filtre) dans une catégorie. */
+export async function recategorizeTransactions(ids: string[], categoryId: string): Promise<ActionResult<{ changed: number }>> {
+  const parsed = z.object({ ids: z.array(z.string().uuid()).min(1).max(5000), categoryId: z.string().uuid() }).safeParse({ ids, categoryId });
+  if (!parsed.success) return { ok: false, error: "Choix invalide." };
+  const { user } = await getSession();
+  try {
+    const changed = await recategorize(user.id, parsed.data.ids, parsed.data.categoryId);
+    refresh();
+    return { ok: true, data: { changed } };
+  } catch {
+    return { ok: false, error: "Reclassement impossible, réessaie dans un instant." };
+  }
 }
