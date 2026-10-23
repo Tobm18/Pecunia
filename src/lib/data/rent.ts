@@ -1,27 +1,34 @@
 import "server-only";
-import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db, schema as s } from "@/lib/db";
 import { CONFIDENCE, merchantKey } from "@/lib/domain/categorize";
-import { allocateRent, type RentMode } from "@/lib/domain/rent";
+import { allocateRent, type RentMode, type RentPeriod } from "@/lib/domain/rent";
 
 /**
- * Loyer payé à un proche. Les règles s'appliquent à chaque passage du classement automatique :
- * les parts détachées précédentes sont d'abord recollées à leur virement, puis recalculées (une
- * règle modifiée ou un nouveau virement sont ainsi toujours pris en compte). Le total d'un
- * virement et de sa part loyer est toujours son montant d'origine.
+ * Loyer payé à un proche. Une règle (proche + catégorie) a un historique de périodes : chacune fixe
+ * la part de loyer à partir d'une date. Les règles s'appliquent à chaque passage du classement
+ * automatique : les parts détachées précédentes sont d'abord recollées à leur virement, puis
+ * recalculées (période ajoutée, montant corrigé ou nouveau virement sont ainsi toujours pris en
+ * compte). Le total d'un virement et de sa part loyer est toujours son montant d'origine.
  */
 
 export const RENT_NOTE = "Part loyer";
 
+export interface RentPeriodView extends RentPeriod {
+  id: string;
+}
+
 export interface RentRuleView {
   id: string;
   merchantKey: string;
-  mode: RentMode;
-  value: number;
   categoryId: string;
+  periods: RentPeriodView[];
   /** Virements concernés et total compté en loyer */
   transfers: number;
   rentCents: number;
+  /** Premier et dernier virement au proche, pour situer les périodes */
+  firstTransfer: string | null;
+  lastTransfer: string | null;
 }
 
 export interface Recipient {
@@ -31,8 +38,10 @@ export interface Recipient {
   totalCents: number;
 }
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /** Recolle les parts loyer à leur virement et rend au classement les virements entièrement en loyer. */
-async function restoreSplits(userId: string, tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) {
+async function restoreSplits(userId: string, tx: Tx) {
   const t = s.transactions;
   await tx.execute(sql`
     update ${t} p set amount_cents = p.amount_cents + c.total
@@ -45,16 +54,26 @@ async function restoreSplits(userId: string, tx: Parameters<Parameters<typeof db
     .where(and(eq(t.user_id, userId), eq(t.category_source, "rent")));
 }
 
+async function periodsByRule(userId: string): Promise<Map<string, RentPeriodView[]>> {
+  const rows = await db.select().from(s.rentPeriods).where(eq(s.rentPeriods.user_id, userId)).orderBy(asc(s.rentPeriods.start_date));
+  const map = new Map<string, RentPeriodView[]>();
+  for (const p of rows) map.set(p.rule_id, [...(map.get(p.rule_id) ?? []), { id: p.id, start: p.start_date, mode: p.mode, value: p.value }]);
+  return map;
+}
+
 /** Applique toutes les règles de loyer de l'utilisateur. Renvoie le nombre de virements concernés. */
 export async function applyRentRules(userId: string): Promise<number> {
   const t = s.transactions;
-  const rules = await db.select().from(s.rentRules).where(eq(s.rentRules.user_id, userId));
-  // parts existantes (y compris celles d'une règle qui vient d'être supprimée) : à recoller
-  const hasSplits = await db
-    .select({ id: t.id })
-    .from(t)
-    .where(and(eq(t.user_id, userId), or(isNotNull(t.split_of), eq(t.category_source, "rent"))))
-    .limit(1);
+  const [rules, periods, hasSplits] = await Promise.all([
+    db.select().from(s.rentRules).where(eq(s.rentRules.user_id, userId)),
+    periodsByRule(userId),
+    // parts existantes (y compris celles d'une règle qui vient d'être supprimée) : à recoller
+    db
+      .select({ id: t.id })
+      .from(t)
+      .where(and(eq(t.user_id, userId), or(isNotNull(t.split_of), eq(t.category_source, "rent"))))
+      .limit(1),
+  ]);
   if (!rules.length && !hasSplits.length) return 0;
 
   let touched = 0;
@@ -69,7 +88,7 @@ export async function applyRentRules(userId: string): Promise<number> {
       const lines = rows.filter((r) => merchantKey(r.place) === rule.merchant_key);
       const parts = allocateRent(
         lines.map((l) => ({ id: l.id, date: l.date, cents: -Number(l.amount) })),
-        { mode: rule.mode, value: rule.value },
+        periods.get(rule.id) ?? [],
       );
       for (const line of lines) {
         const part = parts.get(line.id);
@@ -80,7 +99,7 @@ export async function applyRentRules(userId: string): Promise<number> {
           // tout le virement est du loyer : la ligne change simplement de catégorie
           await tx
             .update(t)
-            .set({ category_id: rule.category_id, category_source: "rent", category_confidence: CONFIDENCE.manual, rent_rule_id: rule.id })
+            .set({ category_id: rule.category_id, category_source: "rent", category_confidence: CONFIDENCE.rent, rent_rule_id: rule.id })
             .where(eq(t.id, line.id));
           continue;
         }
@@ -95,7 +114,7 @@ export async function applyRentRules(userId: string): Promise<number> {
           note: RENT_NOTE,
           category_id: rule.category_id,
           category_source: "rent",
-          category_confidence: CONFIDENCE.manual,
+          category_confidence: CONFIDENCE.rent,
           split_of: line.id,
           rent_rule_id: rule.id,
         });
@@ -107,24 +126,33 @@ export async function applyRentRules(userId: string): Promise<number> {
 
 export async function listRentRules(userId: string): Promise<RentRuleView[]> {
   const t = s.transactions;
-  const [rules, stats] = await Promise.all([
-    db.select().from(s.rentRules).where(eq(s.rentRules.user_id, userId)),
+  const [rules, periods, stats, rows] = await Promise.all([
+    db.select().from(s.rentRules).where(eq(s.rentRules.user_id, userId)).orderBy(asc(s.rentRules.created_at)),
+    periodsByRule(userId),
     db
       .select({ ruleId: t.rent_rule_id, n: sql<number>`count(*)::int`, total: sql<string>`coalesce(sum(${t.amount_cents}), 0)` })
       .from(t)
       .where(and(eq(t.user_id, userId), isNotNull(t.rent_rule_id)))
       .groupBy(t.rent_rule_id),
+    db
+      .select({ place: t.place, date: t.date })
+      .from(t)
+      .where(and(eq(t.user_id, userId), eq(t.type, "out"), isNull(t.split_of))),
   ]);
   const byRule = new Map(stats.map((x) => [x.ruleId, x]));
-  return rules.map((r) => ({
-    id: r.id,
-    merchantKey: r.merchant_key,
-    mode: r.mode,
-    value: r.value,
-    categoryId: r.category_id,
-    transfers: Number(byRule.get(r.id)?.n ?? 0),
-    rentCents: -Number(byRule.get(r.id)?.total ?? 0),
-  }));
+  return rules.map((r) => {
+    const dates = rows.filter((x) => merchantKey(x.place) === r.merchant_key).map((x) => x.date).sort();
+    return {
+      id: r.id,
+      merchantKey: r.merchant_key,
+      categoryId: r.category_id,
+      periods: periods.get(r.id) ?? [],
+      transfers: Number(byRule.get(r.id)?.n ?? 0),
+      rentCents: -Number(byRule.get(r.id)?.total ?? 0),
+      firstTransfer: dates[0] ?? null,
+      lastTransfer: dates.at(-1) ?? null,
+    };
+  });
 }
 
 /** Proches à qui l'utilisateur fait des virements (Wero, virements nominatifs), les plus fréquents d'abord. */
@@ -146,17 +174,61 @@ export async function listRecipients(userId: string): Promise<Recipient[]> {
   return [...byKey.values()].sort((a, b) => b.count - a.count).slice(0, 40);
 }
 
-export async function saveRentRule(userId: string, input: { merchantKey: string; mode: RentMode; value: number; categoryId: string }): Promise<void> {
+async function ownedCategory(userId: string, categoryId: string) {
   const [category] = await db
     .select({ id: s.categories.id })
     .from(s.categories)
-    .where(and(eq(s.categories.id, input.categoryId), eq(s.categories.user_id, userId)));
+    .where(and(eq(s.categories.id, categoryId), eq(s.categories.user_id, userId)));
   if (!category) throw new Error("catégorie inconnue");
-  const r = s.rentRules;
+  return category.id;
+}
+
+/** Nouvelle règle (proche + catégorie) avec sa première période. */
+export async function createRentRule(userId: string, input: { merchantKey: string; categoryId: string; period: RentPeriod }): Promise<void> {
+  const categoryId = await ownedCategory(userId, input.categoryId);
+  await db.transaction(async (tx) => {
+    const r = s.rentRules;
+    const [rule] = await tx
+      .insert(r)
+      .values({ user_id: userId, merchant_key: input.merchantKey, category_id: categoryId })
+      .onConflictDoUpdate({ target: [r.user_id, r.merchant_key], set: { category_id: categoryId } })
+      .returning({ id: r.id });
+    await upsertPeriod(tx, userId, rule!.id, input.period);
+  });
+  await applyRentRules(userId);
+}
+
+async function upsertPeriod(tx: Tx, userId: string, ruleId: string, period: RentPeriod) {
+  const p = s.rentPeriods;
+  await tx
+    .insert(p)
+    .values({ rule_id: ruleId, user_id: userId, start_date: period.start, mode: period.mode, value: period.value })
+    .onConflictDoUpdate({ target: [p.rule_id, p.start_date], set: { mode: period.mode, value: period.value } });
+}
+
+/** Ajoute (ou remplace, à la même date) une période d'une règle. */
+export async function addRentPeriod(userId: string, ruleId: string, period: RentPeriod): Promise<void> {
+  const [rule] = await db
+    .select({ id: s.rentRules.id })
+    .from(s.rentRules)
+    .where(and(eq(s.rentRules.id, ruleId), eq(s.rentRules.user_id, userId)));
+  if (!rule) throw new Error("règle inconnue");
+  await db.transaction((tx) => upsertPeriod(tx, userId, rule.id, period));
+  await applyRentRules(userId);
+}
+
+/** Retire une période (la précédente s'applique alors jusqu'à la suivante). */
+export async function deleteRentPeriod(userId: string, periodId: string): Promise<void> {
+  await db.delete(s.rentPeriods).where(and(eq(s.rentPeriods.id, periodId), eq(s.rentPeriods.user_id, userId)));
+  await applyRentRules(userId);
+}
+
+export async function setRentCategory(userId: string, ruleId: string, categoryId: string): Promise<void> {
+  const id = await ownedCategory(userId, categoryId);
   await db
-    .insert(r)
-    .values({ user_id: userId, merchant_key: input.merchantKey, mode: input.mode, value: input.value, category_id: category.id })
-    .onConflictDoUpdate({ target: [r.user_id, r.merchant_key], set: { mode: input.mode, value: input.value, category_id: category.id } });
+    .update(s.rentRules)
+    .set({ category_id: id })
+    .where(and(eq(s.rentRules.id, ruleId), eq(s.rentRules.user_id, userId)));
   await applyRentRules(userId);
 }
 

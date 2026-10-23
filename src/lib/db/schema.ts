@@ -295,14 +295,23 @@ export const merchantRules = pgTable("merchant_rules", {
   updated_at: ts("updated_at").notNull().defaultNow(),
 });
 
-/** Loyer payé à un proche : part de ses virements comptée en loyer. */
+/** Loyer payé à un proche : ses virements et la catégorie de la part loyer. */
 export const rentRules = pgTable("rent_rules", {
   id: uuid("id").primaryKey().defaultRandom(),
   user_id: uuid("user_id").notNull(),
   merchant_key: text("merchant_key").notNull(),
+  category_id: uuid("category_id").notNull(),
+  created_at: ts("created_at").notNull().defaultNow(),
+});
+
+/** Part de loyer d'une règle à partir d'une date (jusqu'à la période suivante). */
+export const rentPeriods = pgTable("rent_periods", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  rule_id: uuid("rule_id").notNull(),
+  user_id: uuid("user_id").notNull(),
+  start_date: day("start_date").notNull(),
   mode: text("mode", { enum: ["monthly", "percent"] }).notNull(),
   value: integer("value").notNull(),
-  category_id: uuid("category_id").notNull(),
   created_at: ts("created_at").notNull().defaultNow(),
 });
 
