@@ -279,6 +279,16 @@ export const bankAccounts = pgTable("bank_accounts", {
   raw_sample: jsonb("raw_sample"),
 });
 
+/** Catégorie apprise pour un commerçant (clé commerçant, voir domain/categorize.ts). */
+export const merchantRules = pgTable("merchant_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: uuid("user_id").notNull(),
+  merchant_key: text("merchant_key").notNull(),
+  category_id: uuid("category_id").notNull(),
+  created_at: ts("created_at").notNull().defaultNow(),
+  updated_at: ts("updated_at").notNull().defaultNow(),
+});
+
 /** Abonnement aux notifications push d'un appareil (Web Push). */
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: uuid("id").primaryKey().defaultRandom(),

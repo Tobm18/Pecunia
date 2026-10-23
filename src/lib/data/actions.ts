@@ -16,6 +16,7 @@ import type { Transaction } from "@/lib/domain/types";
 import { getAccounts, getBalances, getBudgets, getCategories, getProfile, getSession, getTransactions, pgErrorCode } from "./queries";
 import { transactionToRow } from "./mappers";
 import { refreshInternalAccounts } from "./bank";
+import { learnMerchant } from "./categorize";
 import { THEME_COOKIE } from "@/lib/theme";
 
 export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
@@ -179,6 +180,10 @@ export async function updateTransaction(id: string, input: EntryInput): Promise<
       // une régularisation garde son type
       const type = existing.type === "adjust" ? "adjust" : row.type;
       await db.update(t).set({ ...row, type }).where(and(eq(t.id, id), eq(t.user_id, user.id)));
+      // apprentissage : la catégorie choisie à la main vaudra pour les prochaines lignes du commerçant
+      if ((type === "out" || type === "in") && row.category_id && row.category_id !== existing.category_id) {
+        await learnMerchant(user.id, row.place ?? existing.place, row.category_id).catch(() => undefined);
+      }
     } else {
       // suppression et recréation atomiques : jamais de virement à moitié enregistré
       await db.transaction(async (tx) => {

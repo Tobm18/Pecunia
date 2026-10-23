@@ -17,6 +17,9 @@ import { EditTransactionModal } from "@/components/transactions/edit-transaction
 
 type TypeFilter = "all" | "out" | "in" | "transfer";
 
+/** Lignes affichées d'un coup (« Afficher plus » ajoute le paquet suivant) */
+const PAGE = 200;
+
 export function TransactionsView({ transactions, initialAccount }: { transactions: Transaction[]; initialAccount: string | null }) {
   const { activeAccounts, activeCategories, categoryById, accountById } = useAppData();
   const [search, setSearch] = useState("");
@@ -40,7 +43,16 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
   }, [transactions, search, accountId, type, categoryId]);
 
   const total = signedTotal(filtered, accountId);
-  const groups = groupByDay(filtered);
+  // rendu par paquets : une longue période (tout l'historique) reste fluide ; le total porte sur tout
+  const [shown, setShown] = useState(PAGE);
+  const filterKey = `${search}|${accountId}|${type}|${categoryId}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setShown(PAGE);
+  }
+  const groups = groupByDay(filtered.slice(0, shown));
+  const remaining = filtered.length - shown;
 
   return (
     <>
@@ -133,6 +145,15 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
               </section>
             );
           })}
+          {remaining > 0 && (
+            <button
+              type="button"
+              onClick={() => setShown((n) => n + PAGE)}
+              className="min-h-11 rounded-card bg-surface font-semibold text-accent-700 shadow-card hover:bg-n-100"
+            >
+              Afficher plus ({remaining} restante{remaining > 1 ? "s" : ""})
+            </button>
+          )}
         </div>
       )}
 

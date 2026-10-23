@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
+import type { MerchantRule } from "@/lib/domain/categorize";
 import type { Account, Category, ForecastItem, PlaceMemoryEntry, Profile, Recurrence } from "@/lib/domain/types";
 
 export interface AppDataInput {
@@ -10,6 +11,8 @@ export interface AppDataInput {
   /** Solde courant par id de compte, en centimes */
   balances: Record<string, number>;
   placeMemory: PlaceMemoryEntry[];
+  /** Catégories apprises par commerçant */
+  merchantRules: MerchantRule[];
   recurrences: Recurrence[];
   /** Dépenses / revenus ponctuels prévus, non encore liés */
   forecastItems: ForecastItem[];

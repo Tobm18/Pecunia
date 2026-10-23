@@ -60,7 +60,7 @@ function guessAccountFromFileName(fileName: string, accounts: Account[]): Accoun
 }
 
 export function CsvImport({ initialAccountId }: { initialAccountId: string | null }) {
-  const { activeAccounts, activeCategories, placeMemory, balances, categoryById } = useAppData();
+  const { activeAccounts, activeCategories, placeMemory, merchantRules, balances, categoryById } = useAppData();
   const toast = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
@@ -83,7 +83,10 @@ export function CsvImport({ initialAccountId }: { initialAccountId: string | nul
   const newKey = useRef(0);
 
   const account = activeAccounts.find((a) => a.id === accountId);
-  const categorizer = useMemo(() => createCategorizer(activeCategories, placeMemory), [activeCategories, placeMemory]);
+  const categorizer = useMemo(
+    () => createCategorizer(activeCategories, placeMemory, merchantRules),
+    [activeCategories, placeMemory, merchantRules],
+  );
   const otherAccounts = useMemo(() => activeAccounts.filter((a) => a.id !== accountId), [activeAccounts, accountId]);
   const typeOptions = useMemo<DraftType[]>(
     () => (account?.type === "savings" ? ["out", "in", "interest", "transfer_out", "transfer_in"] : ["out", "in", "transfer_out", "transfer_in"]),

@@ -42,6 +42,7 @@ export const ACCOUNT_ICONS = ["card", "bank", "plane", "wallet", "piggy", "home"
 export const CATEGORY_ICONS = [
   "cart", "utensils", "bus", "home", "repeat", "ticket", "heart", "piggy", "more", "briefcase",
   "gift", "shirt", "book", "baby", "paw", "fuel", "phone", "plane",
+  "bag", "shield", "receipt", "users", "donate", "refund", "sport",
 ] as const;
 export const PALETTE = [
   "#2f3a4f", "#5b6bd6", "#e08a2e", "#5f9a57", "#3b82c4", "#ef8354", "#8b7fd6",

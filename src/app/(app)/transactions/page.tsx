@@ -1,12 +1,19 @@
 import Link from "next/link";
 import { getAppData, getTransactions } from "@/lib/data/queries";
 import { resolveMonth } from "@/lib/data/views";
-import { monthPeriod } from "@/lib/domain/dates";
+import { isValidIsoDate, longDayMonth, monthPeriod, todayIso } from "@/lib/domain/dates";
 import { MonthSwitcher } from "@/components/app/filters";
 import { buttonClass } from "@/components/ui/primitives";
+import { PeriodPicker, type PeriodMode } from "./period-picker";
 import { TransactionsView } from "./transactions-view";
 
 export const metadata = { title: "Transactions" };
+
+const shiftMonths = (date: string, months: number) => {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.toISOString().slice(0, 10);
+};
 
 export default async function TransactionsPage({
   searchParams,
@@ -15,10 +22,30 @@ export default async function TransactionsPage({
 }) {
   const params = await searchParams;
   const { profile, accounts } = await getAppData();
+  const mode: PeriodMode = (["3m", "12m", "tout", "dates"] as const).find((m) => m === params.periode) ?? "mois";
   const { month, current } = resolveMonth(params.mois, profile.monthStartDay);
-  const period = monthPeriod(month, profile.monthStartDay);
-  const txs = await getTransactions({ from: period.start, to: period.end });
+  const today = todayIso();
+
+  // Période demandée : un mois (par défaut), les 3 ou 12 derniers mois, tout, ou des dates choisies
+  let range: { from?: string; to?: string };
+  if (mode === "3m") range = { from: shiftMonths(today, -3) };
+  else if (mode === "12m") range = { from: shiftMonths(today, -12) };
+  else if (mode === "tout") range = {};
+  else if (mode === "dates") range = { from: isValidIsoDate(params.du) ? params.du : undefined, to: isValidIsoDate(params.au) ? params.au : undefined };
+  else range = { from: monthPeriod(month, profile.monthStartDay).start, to: monthPeriod(month, profile.monthStartDay).end };
+
+  const txs = await getTransactions(range);
   const initialAccount = accounts.some((a) => a.id === params.compte) ? params.compte! : null;
+  const rangeLabel =
+    mode === "dates"
+      ? [range.from ? `du ${longDayMonth(range.from)} ${range.from.slice(0, 4)}` : null, range.to ? `au ${longDayMonth(range.to)} ${range.to.slice(0, 4)}` : null]
+          .filter(Boolean)
+          .join(" ") || "Toutes les dates"
+      : mode === "tout"
+        ? "Tout l'historique"
+        : mode === "mois"
+          ? null
+          : `${mode === "3m" ? "3" : "12"} derniers mois`;
 
   return (
     <div className="flex flex-col gap-4">
@@ -27,7 +54,10 @@ export default async function TransactionsPage({
           <p className="text-[11px] font-bold uppercase tracking-wider text-n-600">Historique</p>
           <h1 className="text-3xl font-extrabold md:text-4xl">Transactions</h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Link href="/categories/classer" className={buttonClass("secondary")}>
+            Classer par commerçant
+          </Link>
           <Link href={initialAccount ? `/import?compte=${initialAccount}` : "/import"} className={buttonClass("secondary")}>
             Importer un CSV
           </Link>
@@ -36,8 +66,13 @@ export default async function TransactionsPage({
           </Link>
         </div>
       </div>
-      <MonthSwitcher path="/transactions" month={month} current={current} params={{ compte: initialAccount }} />
-      <TransactionsView key={month} transactions={txs} initialAccount={initialAccount} />
+      <PeriodPicker mode={mode} from={range.from ?? null} to={range.to ?? null} account={initialAccount} />
+      {mode === "mois" ? (
+        <MonthSwitcher path="/transactions" month={month} current={current} params={{ compte: initialAccount }} />
+      ) : (
+        <h2 className="text-xl font-extrabold md:text-2xl">{rangeLabel}</h2>
+      )}
+      <TransactionsView key={`${mode}-${month}-${range.from}-${range.to}`} transactions={txs} initialAccount={initialAccount} />
     </div>
   );
 }

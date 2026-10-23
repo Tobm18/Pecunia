@@ -8,6 +8,7 @@ import { auth } from "@/lib/auth";
 import { db, schema as s } from "@/lib/db";
 import { DEFAULT_ACCOUNT, DEFAULT_CATEGORIES } from "@/lib/domain/defaults";
 import type { Account, Budget, Category, ForecastDecision, ForecastItem, Goal, PlaceMemoryEntry, Profile, Recurrence, Transaction, Wish } from "@/lib/domain/types";
+import type { MerchantRule } from "@/lib/domain/categorize";
 import { toAccount, toBudget, toCategory, toForecastDecision, toForecastItem, toGoal, toPlaceMemory, toProfile, toRecurrence, toTransaction, toWish } from "./mappers";
 
 /**
@@ -136,6 +137,16 @@ export const getPlaceMemory = cache(async (): Promise<PlaceMemoryEntry[]> => {
   return rows.map(toPlaceMemory);
 });
 
+/** Catégories apprises par commerçant (corrections de l'utilisateur). */
+export const getMerchantRules = cache(async (): Promise<MerchantRule[]> => {
+  const { user } = await getSession();
+  const rows = await db
+    .select({ merchantKey: s.merchantRules.merchant_key, categoryId: s.merchantRules.category_id })
+    .from(s.merchantRules)
+    .where(eq(s.merchantRules.user_id, user.id));
+  return rows;
+});
+
 export interface TransactionQuery {
   from?: string;
   to?: string;
@@ -199,26 +210,28 @@ export const getGoals = cache(async (): Promise<Goal[]> => {
 export const getAppData = cache(async () => {
   // Le profil d'abord : sa création initialise aussi comptes et catégories.
   const profile = await getProfile();
-  const [accounts, categories, balances, placeMemory, recurrences, forecastItems] = await Promise.all([
+  const [accounts, categories, balances, placeMemory, recurrences, forecastItems, merchantRules] = await Promise.all([
     getAccounts(),
     getCategories(),
     getBalances(),
     getPlaceMemory(),
     getRecurrences(),
     getForecastItems(),
+    getMerchantRules(),
   ]);
-  return { profile, accounts, categories, balances, placeMemory, recurrences, forecastItems };
+  return { profile, accounts, categories, balances, placeMemory, recurrences, forecastItems, merchantRules };
 });
 
 /** Idem, sérialisable pour les composants clients (Map → objet). */
 export const getClientAppData = cache(async () => {
-  const { profile, accounts, categories, balances, placeMemory, recurrences, forecastItems } = await getAppData();
+  const { profile, accounts, categories, balances, placeMemory, recurrences, forecastItems, merchantRules } = await getAppData();
   return {
     profile,
     accounts,
     categories,
     balances: Object.fromEntries([...balances].map(([id, b]) => [id, b.balanceCents])),
     placeMemory,
+    merchantRules,
     recurrences,
     // seules les dépenses prévues non liées servent au rapprochement de la saisie
     forecastItems: forecastItems.filter((f) => f.status === "planned"),

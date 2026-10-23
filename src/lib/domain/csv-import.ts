@@ -10,6 +10,7 @@
  * catégories, lignes déjà enregistrées) → éléments envoyés au serveur.
  */
 import type { Account, Category, PlaceMemoryEntry, Transaction } from "./types";
+import { merchantKey, merchantRoot, ruleCategoryNames, type MerchantRule } from "./categorize";
 import { parseAmountToCents } from "./money";
 import { isValidIsoDate, type IsoDate } from "./dates";
 
@@ -343,57 +344,76 @@ export function matchExisting(
 // Catégorisation automatique
 // ---------------------------------------------------------------------------
 
-/**
- * Règles par mots-clés (texte sans accents, en minuscules), vers les noms des catégories
- * par défaut. L'ordre compte : « uber eats » est un restaurant avant « uber » transport.
- */
-const CATEGORY_RULES: [string, RegExp][] = [
-  ["Salaire", /salaire|paie\b|prime d.activite|mobilijeune|\bcaf\b|13 ?e?me mois|allocation|pole emploi|france travail/],
-  ["Restaurants", /uber ?eats|deliveroo|resto|restau|ristorante|osteria|trattoria|pizz|burger|kfc|mcdo|mc ?donald|five guys|subway|kebab|sushi|cafet|\bcafe\b|coffee|coffe|\bbar\b|brasserie|brasseur|pub\b|creperie|crepes?\b|snack|gelateria|glacier|boulangerie|viennoiserie|patisserie|bateleur|delirium|naga|sunbar|barstool|guinguette|gourmand|bouf+e?\b|miam\b|carte tr\b|ticket resto|traiteur/],
-  ["Courses", /carr+efour|leclerc|intermarche|lidl|aldi|monoprix|franprix|auchan|casino|super ?u\b|superstore|biocoop|picard|grand frais|too good to go|marche\b|epicerie|drive\b|supermarche/],
-  ["Transport", /essence|carburant|gasoil|diesel|station|peage|telepeage|parking|parcheggio|stationnement|paybyphone|sncf|ouigo|flixbus|blablacar|\buber\b|bolt|taxi|\bvtc\b|metro|\bbus\b|tisseo|navigo|ratp|tram|train|avion|ryanair|easyjet|velo|ridemovi|lime\b|maif|opteven|garage|carwash|lavage|controle technique|pneu|seat\b|norauto|feu vert/],
-  ["Abonnements", /icloud|netflix|spotify|disney|amazon prime|prime video|deezer|canal\+?|free mobile|\bsfr\b|orange|bouygues|claude|chatgpt|openai|ionos|ovh|fitness|basic.?fit|salle de sport|abonnement|forfait mobile/],
-  ["Santé", /pharmacie|medecin|docteur|\bdr\b|doctolib|ophtalmo|dentiste|kine|osteo|mutuelle|optique|opticien|lunettes|hopital|clinique|laboratoire/],
-  ["Logement", /loyer|\bedf\b|engie|electricite|\beau\b|assurance habitation|charges|syndic|internet|\bbox\b|ikea|leroy merlin|castorama|laverie|pressing|machines/],
-  ["Loisirs", /bowling|cinema|\bcine\b|escape|billard|laser|lazer|concert|festival|spectacle|musee|padel|\bski\b|forfait|location|parachute|skydive|jeux?\b|steam|fnac|cultura|voyage|airbnb|hotel|booking|linkin|soiree|tower|zoo|parc\b/],
-];
-
 export const INTEREST_PATTERN = /remuneration|interets?\b|interet/;
 
+/** Première catégorie proposée par les règles (existante ou non). */
 export function ruleCategoryName(label: string): string | null {
-  const text = normalizeText(label);
-  for (const [name, re] of CATEGORY_RULES) if (re.test(text)) return name;
-  return null;
+  return ruleCategoryNames(label)[0] ?? null;
 }
 
 export interface Categorizer {
   /** Catégorie proposée pour un libellé, selon le sens (dépense / recette) */
   categoryFor(label: string, direction: "out" | "in"): string | null;
+  /** Comme categoryFor, sans repli sur « Autres » : null si rien ne permet de classer la ligne */
+  confidentCategoryFor(label: string, direction: "out" | "in"): string | null;
 }
 
 /**
- * Priorité : mémoire des lieux (dernière saisie au même libellé) → règles par mots-clés →
- * « Autres ». Une recette ne reçoit une règle que si elle vise une catégorie de revenu.
+ * Priorité : règle apprise pour le commerçant (corrections de l'utilisateur) → mémoire des lieux
+ * (même libellé, ou même commerçant) → règles par mots-clés → « Autres ». Une recette ne reçoit
+ * qu'une catégorie de revenu par les règles ; une mémoire « Autres » ne compte pas (c'est le repli).
  */
-export function createCategorizer(categories: Category[], memory: PlaceMemoryEntry[]): Categorizer {
+export function createCategorizer(categories: Category[], memory: PlaceMemoryEntry[], learned: MerchantRule[] = []): Categorizer {
   const active = categories.filter((c) => !c.archivedAt);
   const byName = new Map(active.map((c) => [normalizeText(c.name), c]));
   const byId = new Map(active.map((c) => [c.id, c]));
-  const memoryByLabel = new Map(memory.map((m) => [normalizeText(m.place), m]));
-  const fallbackOut = byName.get("autres") ?? active.find((c) => !c.isIncome) ?? null;
-  const fallbackIn = byName.get("autres") ?? active.find((c) => c.isIncome) ?? fallbackOut;
+  const fallback = byName.get("autres") ?? null;
+  const fallbackOut = fallback ?? active.find((c) => !c.isIncome) ?? null;
+  const fallbackIn = fallback ?? active.find((c) => c.isIncome) ?? fallbackOut;
+  const useful = (id: string | null | undefined) => (id && id !== fallback?.id ? byId.get(id) : undefined);
+
+  const memoryByLabel = new Map<string, Category>();
+  const memoryByMerchant = new Map<string, Category>();
+  // mémoire triée du plus récent au plus ancien : la première occurrence l'emporte
+  for (const m of memory) {
+    const cat = useful(m.categoryId);
+    if (!cat) continue;
+    const label = normalizeText(m.place);
+    if (!memoryByLabel.has(label)) memoryByLabel.set(label, cat);
+    const key = merchantKey(m.place);
+    if (key && !memoryByMerchant.has(key)) memoryByMerchant.set(key, cat);
+  }
+  const learnedByKey = new Map<string, Category>();
+  const learnedByRoot = new Map<string, Category | null>();
+  for (const r of learned) {
+    const cat = useful(r.categoryId);
+    if (!cat) continue;
+    learnedByKey.set(r.merchantKey, cat);
+    const root = merchantRoot(r.merchantKey);
+    // racine ambiguë (deux catégories pour « escota … ») : ignorée
+    if (root) learnedByRoot.set(root, learnedByRoot.has(root) && learnedByRoot.get(root)?.id !== cat.id ? null : cat);
+  }
+
+  const confident = (label: string, direction: "out" | "in"): Category | null => {
+    const fits = (c: Category | undefined | null) => !!c && (direction === "in" || !c.isIncome);
+    const key = merchantKey(label);
+    const root = merchantRoot(key);
+    for (const c of [learnedByKey.get(key), root ? learnedByRoot.get(root) : undefined, memoryByLabel.get(normalizeText(label)), memoryByMerchant.get(key)]) {
+      if (fits(c)) return c!;
+    }
+    for (const name of ruleCategoryNames(label)) {
+      const c = byName.get(normalizeText(name));
+      if (c && (direction === "out" ? !c.isIncome : c.isIncome)) return c;
+    }
+    return null;
+  };
 
   return {
     categoryFor(label, direction) {
-      const remembered = memoryByLabel.get(normalizeText(label));
-      const rememberedCat = remembered?.categoryId ? byId.get(remembered.categoryId) : undefined;
-      if (rememberedCat && (direction === "in" || !rememberedCat.isIncome)) return rememberedCat.id;
-
-      const ruleName = ruleCategoryName(label);
-      const ruleCat = ruleName ? byName.get(normalizeText(ruleName)) : undefined;
-      if (ruleCat && (direction === "out" ? !ruleCat.isIncome : ruleCat.isIncome)) return ruleCat.id;
-
-      return (direction === "out" ? fallbackOut : fallbackIn)?.id ?? null;
+      return confident(label, direction)?.id ?? (direction === "out" ? fallbackOut : fallbackIn)?.id ?? null;
+    },
+    confidentCategoryFor(label, direction) {
+      return confident(label, direction)?.id ?? null;
     },
   };
 }

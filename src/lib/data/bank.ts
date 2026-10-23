@@ -339,11 +339,15 @@ export async function syncConnection(userId: string, connectionId: string): Prom
     .where(and(eq(s.bankAccounts.connection_id, conn.id), eq(s.bankAccounts.user_id, userId), isNotNull(s.bankAccounts.account_id)))
     .orderBy(asc(s.bankAccounts.name));
 
-  const [categories, memory] = await Promise.all([
+  const [categories, memory, learned] = await Promise.all([
     db.select().from(s.categories).where(eq(s.categories.user_id, userId)),
     db.select().from(s.placeMemory).where(eq(s.placeMemory.user_id, userId)).orderBy(desc(s.placeMemory.last_used)),
+    db
+      .select({ merchantKey: s.merchantRules.merchant_key, categoryId: s.merchantRules.category_id })
+      .from(s.merchantRules)
+      .where(eq(s.merchantRules.user_id, userId)),
   ]);
-  const categorizer = createCategorizer(categories.map(toCategory), memory.map(toPlaceMemory));
+  const categorizer = createCategorizer(categories.map(toCategory), memory.map(toPlaceMemory), learned);
 
   let inserted = 0;
   try {
