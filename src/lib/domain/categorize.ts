@@ -134,3 +134,140 @@ export interface MerchantRule {
   merchantKey: string;
   categoryId: string;
 }
+
+// ---------------------------------------------------------------------------
+// Annuaire des entreprises (base SIRENE) : code d'activité NAF → catégorie
+// ---------------------------------------------------------------------------
+
+/**
+ * Catégorie d'un code NAF (« 56.10A »), du plus précis au plus large. null : activité sans
+ * catégorie évidente (coiffure, services divers…), la ligne reste à vérifier.
+ */
+const NAF_RULES: [RegExp, string][] = [
+  [/^47\.73/, "Santé"], // pharmacie
+  [/^47\.74/, "Santé"], // matériel médical
+  [/^47\.78A/, "Santé"], // opticien
+  [/^47\.30/, "Transport"], // carburant
+  [/^47\.26/, "Shopping"], // tabac
+  [/^47\.24/, "Restaurants"], // boulangerie, pâtisserie (comme les règles par mots-clés)
+  [/^10\.71/, "Restaurants"], // boulangerie-pâtisserie artisanale
+  [/^47\.(11|2)/, "Courses"], // supermarchés, alimentation spécialisée
+  [/^47\.91/, "Shopping"], // vente à distance
+  [/^47\./, "Shopping"], // autres commerces de détail
+  [/^56\./, "Restaurants"], // restauration, débits de boissons
+  [/^(49|50|51)\./, "Transport"], // transports
+  [/^52\.2/, "Transport"], // autoroutes, parkings, gares
+  [/^45\.(2|3)/, "Transport"], // entretien et pièces auto
+  [/^77\.11/, "Transport"], // location de voitures
+  [/^(86|75)\./, "Santé"], // santé humaine, vétérinaires
+  [/^(55|79|90|91|92|93)\./, "Loisirs"], // hébergement, voyages, spectacles, musées, jeux, sport et loisirs
+  [/^59\.14/, "Loisirs"], // cinémas
+  [/^61\./, "Abonnements"], // télécommunications
+  [/^(35|36|68)\./, "Logement"], // énergie, eau, immobilier
+  [/^65\./, "Assurances"],
+  [/^64\.1/, "Frais bancaires"],
+  [/^84\./, "Impôts & amendes"], // administration publique
+  [/^94\./, "Associations & dons"],
+];
+
+export function nafCategoryName(naf: string | null | undefined): string | null {
+  if (!naf) return null;
+  return NAF_RULES.find(([re]) => re.test(naf))?.[1] ?? null;
+}
+
+/** Paiement par carte (« CB****1234 ») : seul cas où le commerçant est cherché dans l'annuaire. */
+export const isCardPayment = (label: string | null | undefined) => /\bcb\s*\*{2,}\s*\d{2,4}\b/i.test(label ?? "");
+
+/**
+ * Commerçant d'un paiement carte, pour l'annuaire : nom (clé commerçant), département et ville
+ * quand le libellé les donne (« … GARIG 06CAGNES SUR ME » → garig, 06, cagnes sur me).
+ */
+export function merchantPlace(label: string | null | undefined): { name: string; department: string | null; city: string | null } | null {
+  if (!isCardPayment(label)) return null;
+  const name = merchantKey(label);
+  if (name.length < 3) return null;
+  let s = normalize(label ?? "")
+    .replace(/^\d{6}\s+cb\s*\*+\s*\d{2,4}\s*/, "")
+    .replace(/\s\d{6}\s+cb\s*\*+\s*\d{2,4}.*$/, "")
+    .replace(/\s\d+[.,]\d{2}\s?[a-z]{3}\b.*$/, "");
+  const dept = /(?:^|[a-z\s])(\d{2}|2a|2b)([a-z][a-z\s'-]{2,})$/.exec(s);
+  if (dept) return { name, department: dept[1]!, city: dept[2]!.trim() };
+  s = s.replace(/\s+/g, " ");
+  const country = /(?:\sfr\s|fr\s)([a-z][a-z\s'-]{2,})$/.exec(s);
+  return { name, department: null, city: country ? country[1]!.trim() : null };
+}
+
+/** Clé du cache de l'annuaire : commerçant + département (un même nom ailleurs est un autre commerce). */
+export const directoryKey = (place: { name: string; department: string | null }) => `${place.name}|${place.department ?? ""}`;
+
+const words = (s: string) => normalize(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
+
+/** La ville du libellé (souvent tronquée : « cagnes sur me ») correspond-elle à cette commune ? */
+export function sameCity(city: string | null, commune: string | null | undefined): boolean {
+  const ours = city ? normalize(city).replace(/[^a-z]/g, "") : "";
+  const theirs = commune ? normalize(commune).replace(/[^a-z]/g, "") : "";
+  if (ours.length < 3 || !theirs) return false;
+  return theirs.startsWith(ours.slice(0, Math.min(ours.length, 8))) || ours.startsWith(theirs.slice(0, 8));
+}
+
+/**
+ * Qualité d'une correspondance de l'annuaire, de 0 à 90 : nom (ou enseigne) identique, commençant
+ * par le nom tronqué de la banque, ou mots en commun ; puis la ville. Sans la ville du libellé
+ * parmi celles de l'entreprise, le score reste sous le seuil de vérification (homonymes).
+ */
+export function directoryMatchScore(
+  place: { name: string; city: string | null; department?: string | null },
+  candidate: { names: string[]; communes: string[] },
+): number {
+  const ours = place.name.replace(/\s+/g, " ");
+  let nameScore = 0;
+  for (const n of candidate.names) {
+    const theirs = words(n).join(" ");
+    if (!theirs) continue;
+    if (theirs === ours) nameScore = Math.max(nameScore, 45);
+    else if (theirs.startsWith(ours) || ours.startsWith(theirs)) nameScore = Math.max(nameScore, 35);
+    else {
+      // mots en commun (noms tronqués, ordre différent)
+      const a = new Set(words(ours));
+      const common = words(theirs).filter((w) => a.has(w) || [...a].some((x) => x.length >= 4 && w.startsWith(x))).length;
+      if (common && common >= Math.min(a.size, 2)) nameScore = Math.max(nameScore, 25);
+    }
+  }
+  if (!nameScore) return 0;
+  const cityMatch = candidate.communes.some((c) => sameCity(place.city, c));
+  // même département (filtre de la recherche) sans la ville : un peu plus sûr qu'aucun indice de lieu
+  return Math.min(90, nameScore + (cityMatch ? 45 : place.department ? 15 : 10));
+}
+
+// ---------------------------------------------------------------------------
+// Score de confiance
+// ---------------------------------------------------------------------------
+
+/** Origine d'une catégorie : saisie ou validée à la main, ou devinée automatiquement */
+export type CategorySource = "manual" | "learned" | "memory" | "rule" | "directory" | "fallback" | "legacy";
+
+/** En dessous de ce score, une catégorie automatique est à vérifier */
+export const REVIEW_BELOW = 70;
+
+export const CONFIDENCE: Record<Exclude<CategorySource, "directory">, number> = {
+  manual: 100,
+  learned: 95,
+  memory: 70,
+  rule: 75,
+  legacy: 60,
+  fallback: 0,
+};
+
+export const SOURCE_LABELS: Record<CategorySource, string> = {
+  manual: "choisie par toi",
+  learned: "apprise de tes choix pour ce commerçant",
+  memory: "même libellé déjà classé",
+  rule: "mot-clé du libellé",
+  directory: "annuaire des entreprises",
+  fallback: "aucun indice",
+  legacy: "ancien classement",
+};
+
+/** Une catégorie automatique est-elle à vérifier ? (une saisie manuelle ne l'est jamais) */
+export const needsReview = (source: string | null | undefined, confidence: number | null | undefined) =>
+  !!source && source !== "manual" && (confidence ?? 0) < REVIEW_BELOW;

@@ -10,7 +10,17 @@
  * catégories, lignes déjà enregistrées) → éléments envoyés au serveur.
  */
 import type { Account, Category, PlaceMemoryEntry, Transaction } from "./types";
-import { merchantKey, merchantRoot, ruleCategoryNames, type MerchantRule } from "./categorize";
+import {
+  CONFIDENCE,
+  directoryKey,
+  merchantKey,
+  merchantPlace,
+  merchantRoot,
+  nafCategoryName,
+  ruleCategoryNames,
+  type CategorySource,
+  type MerchantRule,
+} from "./categorize";
 import { parseAmountToCents } from "./money";
 import { isValidIsoDate, type IsoDate } from "./dates";
 
@@ -351,19 +361,37 @@ export function ruleCategoryName(label: string): string | null {
   return ruleCategoryNames(label)[0] ?? null;
 }
 
+export interface Classification {
+  categoryId: string | null;
+  /** 0 à 100 ; en dessous de REVIEW_BELOW, la ligne est à vérifier */
+  confidence: number;
+  source: CategorySource;
+}
+
 export interface Categorizer {
   /** Catégorie proposée pour un libellé, selon le sens (dépense / recette) */
   categoryFor(label: string, direction: "out" | "in"): string | null;
   /** Comme categoryFor, sans repli sur « Autres » : null si rien ne permet de classer la ligne */
   confidentCategoryFor(label: string, direction: "out" | "in"): string | null;
+  /** Catégorie, score de confiance et origine (repli « Autres » à 0) */
+  classify(label: string, direction: "out" | "in"): Classification;
 }
+
+/** Résultat de l'annuaire des entreprises pour un commerçant (clé : directoryKey) */
+export type DirectoryHits = Map<string, { naf: string | null; score: number }>;
 
 /**
  * Priorité : règle apprise pour le commerçant (corrections de l'utilisateur) → mémoire des lieux
- * (même libellé, ou même commerçant) → règles par mots-clés → « Autres ». Une recette ne reçoit
- * qu'une catégorie de revenu par les règles ; une mémoire « Autres » ne compte pas (c'est le repli).
+ * (même libellé, ou même commerçant) → règles par mots-clés → annuaire des entreprises (code NAF)
+ * → « Autres ». Une recette ne reçoit qu'une catégorie de revenu par les règles ; une mémoire
+ * « Autres » ne compte pas (c'est le repli). Chaque origine a son score de confiance.
  */
-export function createCategorizer(categories: Category[], memory: PlaceMemoryEntry[], learned: MerchantRule[] = []): Categorizer {
+export function createCategorizer(
+  categories: Category[],
+  memory: PlaceMemoryEntry[],
+  learned: MerchantRule[] = [],
+  directory: DirectoryHits = new Map(),
+): Categorizer {
   const active = categories.filter((c) => !c.archivedAt);
   const byName = new Map(active.map((c) => [normalizeText(c.name), c]));
   const byId = new Map(active.map((c) => [c.id, c]));
@@ -394,26 +422,41 @@ export function createCategorizer(categories: Category[], memory: PlaceMemoryEnt
     if (root) learnedByRoot.set(root, learnedByRoot.has(root) && learnedByRoot.get(root)?.id !== cat.id ? null : cat);
   }
 
-  const confident = (label: string, direction: "out" | "in"): Category | null => {
+  const confident = (label: string, direction: "out" | "in"): { category: Category; confidence: number; source: CategorySource } | null => {
     const fits = (c: Category | undefined | null) => !!c && (direction === "in" || !c.isIncome);
     const key = merchantKey(label);
     const root = merchantRoot(key);
-    for (const c of [learnedByKey.get(key), root ? learnedByRoot.get(root) : undefined, memoryByLabel.get(normalizeText(label)), memoryByMerchant.get(key)]) {
-      if (fits(c)) return c!;
-    }
+    const candidates: [Category | null | undefined, number, CategorySource][] = [
+      [learnedByKey.get(key), CONFIDENCE.learned, "learned"],
+      [root ? learnedByRoot.get(root) : undefined, CONFIDENCE.learned - 10, "learned"],
+      [memoryByLabel.get(normalizeText(label)), CONFIDENCE.memory, "memory"],
+      [memoryByMerchant.get(key), CONFIDENCE.memory - 5, "memory"],
+    ];
+    for (const [c, confidence, source] of candidates) if (fits(c)) return { category: c!, confidence, source };
     for (const name of ruleCategoryNames(label)) {
       const c = byName.get(normalizeText(name));
-      if (c && (direction === "out" ? !c.isIncome : c.isIncome)) return c;
+      if (c && (direction === "out" ? !c.isIncome : c.isIncome)) return { category: c, confidence: CONFIDENCE.rule, source: "rule" };
     }
+    // annuaire des entreprises : paiements carte uniquement (des dépenses)
+    const place = direction === "out" ? merchantPlace(label) : null;
+    const hit = place ? directory.get(directoryKey(place)) : undefined;
+    const name = hit && hit.score > 0 ? nafCategoryName(hit.naf) : null;
+    const c = name ? byName.get(normalizeText(name)) : undefined;
+    if (c && !c.isIncome) return { category: c, confidence: hit!.score, source: "directory" };
     return null;
   };
 
   return {
     categoryFor(label, direction) {
-      return confident(label, direction)?.id ?? (direction === "out" ? fallbackOut : fallbackIn)?.id ?? null;
+      return confident(label, direction)?.category.id ?? (direction === "out" ? fallbackOut : fallbackIn)?.id ?? null;
     },
     confidentCategoryFor(label, direction) {
-      return confident(label, direction)?.id ?? null;
+      return confident(label, direction)?.category.id ?? null;
+    },
+    classify(label, direction) {
+      const found = confident(label, direction);
+      if (found) return { categoryId: found.category.id, confidence: found.confidence, source: found.source };
+      return { categoryId: (direction === "out" ? fallbackOut : fallbackIn)?.id ?? null, confidence: CONFIDENCE.fallback, source: "fallback" };
     },
   };
 }
@@ -552,7 +595,17 @@ export function draftSignedCents(d: DraftRow): number {
 }
 
 export type ImportItem =
-  | { kind: "out" | "in" | "interest"; accountId: string; date: IsoDate; place: string; categoryId: string | null; amountCents: number; note: string | null }
+  | {
+      kind: "out" | "in" | "interest";
+      accountId: string;
+      date: IsoDate;
+      place: string;
+      categoryId: string | null;
+      amountCents: number;
+      note: string | null;
+      /** Catégorie choisie à la main dans l'aperçu (sinon devinée, reprise par le classement automatique) */
+      categoryManual?: boolean;
+    }
   | {
       kind: "transfer";
       accountId: string;
@@ -590,6 +643,7 @@ export function draftToItem(d: DraftRow, accountId: string, linkId: string | nul
     categoryId: d.type === "interest" ? null : d.categoryId,
     amountCents,
     note: null,
+    categoryManual: d.categoryManual,
   };
 }
 

@@ -57,6 +57,10 @@ export interface Transaction {
   transferId: string | null;
   recurrenceId: string | null;
   createdAt: string;
+  /** Origine de la catégorie (manual, learned, rule, directory, fallback…) ; absente = saisie manuelle */
+  categorySource?: string | null;
+  /** Score de confiance de la catégorie, 0 à 100 */
+  categoryConfidence?: number | null;
 }
 
 export interface Profile {

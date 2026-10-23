@@ -54,6 +54,8 @@ export const toTransaction = (r: Row): Transaction => ({
   transferId: r.transfer_id,
   recurrenceId: r.recurrence_id,
   createdAt: iso(r.created_at) ?? "",
+  categorySource: r.category_source ?? null,
+  categoryConfidence: r.category_confidence ?? null,
 });
 
 export const toProfile = (r: Row): Profile => ({
@@ -76,18 +78,29 @@ export const toPlaceMemory = (r: Row): PlaceMemoryEntry => ({
   lastUsed: r.last_used,
 });
 
-export const transactionToRow = (t: Omit<Transaction, "id" | "createdAt" | "recurrenceId">, userId: string) => ({
-  user_id: userId,
-  account_id: t.accountId,
-  type: t.type,
-  amount_cents: t.amountCents,
-  date: t.date,
-  place: t.place,
-  category_id: t.categoryId,
-  note: t.note,
-  counterpart_account_id: t.counterpartAccountId,
-  transfer_id: t.transferId,
-});
+/**
+ * Ligne à enregistrer. Sans origine précisée, une dépense / recette est une saisie manuelle
+ * (catégorie choisie par l'utilisateur, jamais reclassée) ; l'import passe null pour les lignes
+ * dont la catégorie a été devinée, que le classement automatique reprend ensuite.
+ */
+export const transactionToRow = (t: Omit<Transaction, "id" | "createdAt" | "recurrenceId">, userId: string) => {
+  const categorized = t.type === "out" || t.type === "in";
+  const source = t.categorySource === undefined ? (categorized ? "manual" : null) : t.categorySource;
+  return {
+    user_id: userId,
+    account_id: t.accountId,
+    type: t.type,
+    amount_cents: t.amountCents,
+    date: t.date,
+    place: t.place,
+    category_id: t.categoryId,
+    note: t.note,
+    counterpart_account_id: t.counterpartAccountId,
+    transfer_id: t.transferId,
+    category_source: source,
+    category_confidence: source === "manual" ? 100 : (t.categoryConfidence ?? null),
+  };
+};
 
 export const toRecurrence = (r: Row): Recurrence => ({
   id: r.id,

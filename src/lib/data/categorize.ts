@@ -1,19 +1,36 @@
 import "server-only";
-import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db, schema as s } from "@/lib/db";
-import { categoryNameKey, merchantKey, ruleCategoryNames, SUGGESTED_CATEGORIES, type SuggestedCategory } from "@/lib/domain/categorize";
-import { createCategorizer } from "@/lib/domain/csv-import";
-import { toCategory, toPlaceMemory } from "./mappers";
+import {
+  categoryNameKey,
+  CONFIDENCE,
+  directoryKey,
+  isCardPayment,
+  merchantKey,
+  merchantPlace,
+  needsReview,
+  REVIEW_BELOW,
+  ruleCategoryNames,
+  SOURCE_LABELS,
+  SUGGESTED_CATEGORIES,
+  type CategorySource,
+  type SuggestedCategory,
+} from "@/lib/domain/categorize";
+import { createCategorizer, type DirectoryHits } from "@/lib/domain/csv-import";
+import { lookupMerchant } from "@/lib/directory";
+import { toCategory } from "./mappers";
 
 /**
- * Analyse et classement des transactions par commerçant (sans IA) : regroupement des lignes d'un
- * même commerçant, catégorie proposée (règles apprises, mémoire, mots-clés), catégories manquantes
- * à créer, et application en masse. Toujours filtré sur l'utilisateur passé en paramètre.
+ * Classement automatique des transactions (sans IA). Chaque dépense / recette non choisie à la
+ * main reçoit une catégorie, une origine et un score de confiance : règle apprise de tes choix,
+ * mot-clé, ou activité du commerçant dans l'annuaire des entreprises (cherchée automatiquement,
+ * une fois par commerçant). Sous le seuil, la ligne est « à vérifier ». Une catégorie manuelle
+ * (saisie, modifiée ou validée) n'est jamais recalculée. Toujours filtré sur l'utilisateur.
  */
 
 export type Direction = "out" | "in";
 
-/** Retient la catégorie d'un commerçant : elle vaudra pour ses prochaines lignes. */
+/** Retient la catégorie d'un commerçant : elle vaudra pour toutes ses lignes automatiques. */
 export async function learnMerchant(userId: string, label: string | null, categoryId: string): Promise<void> {
   const key = merchantKey(label);
   if (!key) return;
@@ -24,7 +41,132 @@ export async function learnMerchant(userId: string, label: string | null, catego
     .onConflictDoUpdate({ target: [r.user_id, r.merchant_key], set: { category_id: categoryId, updated_at: new Date() } });
 }
 
-export interface MerchantGroup {
+async function loadCategorizer(userId: string) {
+  const [categories, learned, directory] = await Promise.all([
+    // catégories, règles apprises et cache de l'annuaire
+    db.select().from(s.categories).where(eq(s.categories.user_id, userId)),
+    db
+      .select({ merchantKey: s.merchantRules.merchant_key, categoryId: s.merchantRules.category_id })
+      .from(s.merchantRules)
+      .where(eq(s.merchantRules.user_id, userId)),
+    db.select({ key: s.merchantDirectory.lookup_key, naf: s.merchantDirectory.naf, score: s.merchantDirectory.score }).from(s.merchantDirectory),
+  ]);
+  const cats = categories.map(toCategory);
+  const hits: DirectoryHits = new Map(directory.map((d) => [d.key, { naf: d.naf, score: d.score }]));
+  // pas de « mémoire des lieux » : elle répéterait les classements automatiques eux-mêmes ;
+  // les choix manuels passent par les règles apprises
+  return { cats, hits, learned, categorizer: createCategorizer(cats, [], learned, hits) };
+}
+
+/** Lignes automatiques (tout sauf « manual ») d'un utilisateur. */
+function automaticRows(userId: string) {
+  const t = s.transactions;
+  return db
+    .select({ id: t.id, place: t.place, amount: t.amount_cents, categoryId: t.category_id, source: t.category_source, confidence: t.category_confidence })
+    .from(t)
+    .where(and(eq(t.user_id, userId), inArray(t.type, ["in", "out"]), or(isNull(t.category_source), ne(t.category_source, "manual"))));
+}
+
+/** Recherches dans l'annuaire, quelques-unes à la fois (l'API limite le débit). */
+async function lookupMany(places: { key: string; place: NonNullable<ReturnType<typeof merchantPlace>> }[]): Promise<number> {
+  let done = 0;
+  const queue = [...places];
+  const worker = async () => {
+    for (let next = queue.shift(); next; next = queue.shift()) {
+      try {
+        const r = await lookupMerchant(next.place);
+        await db
+          .insert(s.merchantDirectory)
+          .values({ lookup_key: next.key, name: r.name, commune: r.commune, naf: r.naf, score: r.score })
+          .onConflictDoUpdate({ target: s.merchantDirectory.lookup_key, set: { name: r.name, commune: r.commune, naf: r.naf, score: r.score, looked_up_at: new Date() } });
+        done++;
+      } catch {
+        // annuaire indisponible ou limite atteinte : on réessaiera au prochain passage
+        if (queue.length) await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  return done;
+}
+
+/**
+ * Passage automatique : cherche dans l'annuaire les commerçants encore incertains (au plus
+ * `lookupBudget` par passage), puis reclasse toutes les lignes automatiques. Une ligne d'origine
+ * inconnue (« legacy », d'avant le classement automatique) garde sa catégorie si le nouveau
+ * classement n'est pas plus sûr, marquée à vérifier.
+ */
+export async function autoCategorize(userId: string, { lookupBudget = 150 } = {}): Promise<{ updated: number; lookedUp: number; toReview: number }> {
+  let { cats, hits, categorizer } = await loadCategorizer(userId);
+  const rows = await automaticRows(userId);
+  const autres = cats.find((c) => !c.archivedAt && categoryNameKey(c.name) === "autres")?.id ?? null;
+
+  // 1. annuaire : commerçants payés par carte, sans classement sûr, jamais cherchés
+  const wanted = new Map<string, NonNullable<ReturnType<typeof merchantPlace>>>();
+  for (const r of rows) {
+    if (wanted.size >= lookupBudget) break;
+    if (Number(r.amount) >= 0 || !isCardPayment(r.place)) continue;
+    const place = merchantPlace(r.place);
+    if (!place || hits.has(directoryKey(place)) || wanted.has(directoryKey(place))) continue;
+    if (categorizer.classify(r.place ?? "", "out").confidence >= REVIEW_BELOW) continue;
+    wanted.set(directoryKey(place), place);
+  }
+  let lookedUp = 0;
+  if (wanted.size) {
+    lookedUp = await lookupMany([...wanted].map(([key, place]) => ({ key, place })));
+    ({ cats, hits, categorizer } = await loadCategorizer(userId));
+  }
+
+  // 2. reclassement des lignes automatiques
+  const updates = new Map<string, { categoryId: string | null; source: CategorySource; confidence: number; ids: string[] }>();
+  let toReview = 0;
+  for (const r of rows) {
+    const direction: Direction = Number(r.amount) < 0 ? "out" : "in";
+    let next = categorizer.classify(r.place ?? "", direction);
+    if (r.source === "legacy" && r.categoryId && r.categoryId !== autres && next.categoryId !== r.categoryId && next.confidence < CONFIDENCE.learned) {
+      next = { categoryId: r.categoryId, source: "legacy", confidence: CONFIDENCE.legacy };
+    }
+    if (needsReview(next.source, next.confidence)) toReview++;
+    if (next.categoryId === r.categoryId && next.source === r.source && next.confidence === r.confidence) continue;
+    const k = `${next.categoryId}|${next.source}|${next.confidence}`;
+    const entry = updates.get(k) ?? { ...next, ids: [] };
+    entry.ids.push(r.id);
+    updates.set(k, entry);
+  }
+  let updated = 0;
+  const t = s.transactions;
+  for (const u of updates.values()) {
+    for (let i = 0; i < u.ids.length; i += 500) {
+      const done = await db
+        .update(t)
+        .set({ category_id: u.categoryId, category_source: u.source, category_confidence: u.confidence })
+        // jamais une ligne passée en manuel entre-temps
+        .where(and(eq(t.user_id, userId), inArray(t.id, u.ids.slice(i, i + 500)), or(isNull(t.category_source), ne(t.category_source, "manual"))))
+        .returning({ id: t.id });
+      updated += done.length;
+    }
+  }
+  return { updated, lookedUp, toReview };
+}
+
+/** Tâche quotidienne : passage automatique pour chaque utilisateur. */
+export async function autoCategorizeAll(): Promise<{ users: number; updated: number; lookedUp: number }> {
+  const users = await db.select({ id: s.user.id }).from(s.user);
+  let updated = 0;
+  let lookedUp = 0;
+  for (const u of users) {
+    const r = await autoCategorize(u.id).catch(() => ({ updated: 0, lookedUp: 0 }));
+    updated += r.updated;
+    lookedUp += r.lookedUp;
+  }
+  return { users: users.length, updated, lookedUp };
+}
+
+// ---------------------------------------------------------------------------
+// Lignes à vérifier
+// ---------------------------------------------------------------------------
+
+export interface ReviewGroup {
   /** Clé commerçant + sens : un même commerçant peut avoir des dépenses et des recettes */
   id: string;
   merchantKey: string;
@@ -32,55 +174,44 @@ export interface MerchantGroup {
   label: string;
   count: number;
   totalCents: number;
-  /** Lignes encore dans « Autres » ou sans catégorie */
-  uncategorized: number;
-  /** Catégorie actuelle la plus fréquente du groupe */
-  currentCategoryId: string | null;
-  /** Catégorie proposée (null : rien ne permet de la deviner) */
-  proposedCategoryId: string | null;
+  /** Catégorie automatique actuelle (la plus fréquente du groupe) */
+  categoryId: string | null;
+  confidence: number;
+  sourceLabel: string;
   /** Catégorie à créer qui conviendrait, quand aucune existante ne convient */
   suggestedName: string | null;
   lastDate: string;
 }
 
-export interface CategoryAnalysis {
+export interface ReviewOverview {
   total: number;
-  uncategorized: number;
-  groups: MerchantGroup[];
-  /** Catégories proposées à la création, avec le nombre de lignes qu'elles classeraient */
+  toReview: number;
+  groups: ReviewGroup[];
+  /** Catégories proposées à la création, avec le nombre de lignes à vérifier qu'elles classeraient */
   suggestions: (SuggestedCategory & { count: number; examples: string[] })[];
 }
 
-async function loadContext(userId: string) {
-  const [categories, memory, learned, rows] = await Promise.all([
+/** Lignes à vérifier, regroupées par commerçant, et catégories manquantes. */
+export async function getReviewOverview(userId: string): Promise<ReviewOverview> {
+  const t = s.transactions;
+  const [categories, rows, [total]] = await Promise.all([
     db.select().from(s.categories).where(eq(s.categories.user_id, userId)),
-    db.select().from(s.placeMemory).where(eq(s.placeMemory.user_id, userId)).orderBy(desc(s.placeMemory.last_used)),
     db
-      .select({ merchantKey: s.merchantRules.merchant_key, categoryId: s.merchantRules.category_id })
-      .from(s.merchantRules)
-      .where(eq(s.merchantRules.user_id, userId)),
+      .select({ place: t.place, amount: t.amount_cents, date: t.date, categoryId: t.category_id, source: t.category_source, confidence: t.category_confidence })
+      .from(t)
+      .where(and(eq(t.user_id, userId), inArray(t.type, ["in", "out"]), ne(t.category_source, "manual"), lt(t.category_confidence, REVIEW_BELOW)))
+      .orderBy(desc(t.date)),
     db
-      .select({ id: s.transactions.id, place: s.transactions.place, amount: s.transactions.amount_cents, date: s.transactions.date, categoryId: s.transactions.category_id })
-      .from(s.transactions)
-      .where(and(eq(s.transactions.user_id, userId), inArray(s.transactions.type, ["in", "out"])))
-      .orderBy(desc(s.transactions.date)),
+      .select({ n: sql<number>`count(*)::int` })
+      .from(t)
+      .where(and(eq(t.user_id, userId), inArray(t.type, ["in", "out"]))),
   ]);
-  const cats = categories.map(toCategory);
-  const active = cats.filter((c) => !c.archivedAt);
-  const autres = active.find((c) => categoryNameKey(c.name) === "autres") ?? null;
-  return { cats, active, autres, categorizer: createCategorizer(cats, memory.map(toPlaceMemory), learned), rows };
-}
+  const existing = new Set(categories.filter((c) => !c.archived_at).map((c) => categoryNameKey(c.name)));
 
-/** Regroupe les dépenses et recettes par commerçant et propose une catégorie à chacun. */
-export async function getCategoryAnalysis(userId: string): Promise<CategoryAnalysis> {
-  const { active, autres, categorizer, rows } = await loadContext(userId);
-  const existing = new Set(active.map((c) => categoryNameKey(c.name)));
-  const isUncategorized = (id: string | null) => !id || id === autres?.id;
-
-  const groups = new Map<string, MerchantGroup & { tally: Map<string, number> }>();
-  for (const t of rows) {
-    const direction: Direction = Number(t.amount) < 0 ? "out" : "in";
-    const key = merchantKey(t.place) || "(sans libellé)";
+  const groups = new Map<string, ReviewGroup & { tally: Map<string, number> }>();
+  for (const r of rows) {
+    const direction: Direction = Number(r.amount) < 0 ? "out" : "in";
+    const key = merchantKey(r.place) || "(sans libellé)";
     const id = `${direction}:${key}`;
     let g = groups.get(id);
     if (!g) {
@@ -88,57 +219,73 @@ export async function getCategoryAnalysis(userId: string): Promise<CategoryAnaly
         id,
         merchantKey: key,
         direction,
-        label: t.place ?? "Sans libellé",
+        label: r.place ?? "Sans libellé",
         count: 0,
         totalCents: 0,
-        uncategorized: 0,
-        currentCategoryId: null,
-        proposedCategoryId: null,
+        categoryId: null,
+        confidence: r.confidence ?? 0,
+        sourceLabel: SOURCE_LABELS[(r.source as CategorySource) ?? "fallback"] ?? "",
         suggestedName: null,
-        lastDate: t.date,
+        lastDate: r.date,
         tally: new Map(),
       };
       groups.set(id, g);
     }
     g.count++;
-    g.totalCents += Number(t.amount);
-    if (isUncategorized(t.categoryId)) g.uncategorized++;
-    if (t.categoryId) g.tally.set(t.categoryId, (g.tally.get(t.categoryId) ?? 0) + 1);
+    g.totalCents += Number(r.amount);
+    g.confidence = Math.min(g.confidence, r.confidence ?? 0);
+    if (r.categoryId) g.tally.set(r.categoryId, (g.tally.get(r.categoryId) ?? 0) + 1);
   }
 
   const suggestionCounts = new Map<string, { count: number; examples: string[] }>();
-  const result: MerchantGroup[] = [];
+  const result: ReviewGroup[] = [];
   for (const g of groups.values()) {
     const { tally, ...group } = g;
-    group.currentCategoryId = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-    group.proposedCategoryId = categorizer.confidentCategoryFor(group.label, group.direction);
-    if (!group.proposedCategoryId) {
-      // catégorie manquante qui conviendrait (sens compris : une recette va dans une catégorie de revenu)
-      const name = ruleCategoryNames(group.label).find((n) => {
-        const suggested = SUGGESTED_CATEGORIES.find((c) => c.name === n);
-        return suggested && !existing.has(categoryNameKey(n)) && suggested.isIncome === (group.direction === "in");
-      });
-      group.suggestedName = name ?? null;
-      if (name && group.uncategorized) {
-        const entry = suggestionCounts.get(name) ?? { count: 0, examples: [] };
-        entry.count += group.uncategorized;
-        if (entry.examples.length < 3) entry.examples.push(group.merchantKey);
-        suggestionCounts.set(name, entry);
-      }
+    group.categoryId = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    const name = ruleCategoryNames(group.label).find((n) => {
+      const suggested = SUGGESTED_CATEGORIES.find((c) => c.name === n);
+      return suggested && !existing.has(categoryNameKey(n)) && suggested.isIncome === (group.direction === "in");
+    });
+    group.suggestedName = name ?? null;
+    if (name) {
+      const entry = suggestionCounts.get(name) ?? { count: 0, examples: [] };
+      entry.count += group.count;
+      if (entry.examples.length < 3) entry.examples.push(group.merchantKey);
+      suggestionCounts.set(name, entry);
     }
     result.push(group);
   }
-  result.sort((a, b) => b.uncategorized - a.uncategorized || b.count - a.count);
+  result.sort((a, b) => b.count - a.count || a.confidence - b.confidence);
 
   return {
-    total: rows.length,
-    uncategorized: rows.filter((t) => isUncategorized(t.categoryId)).length,
+    total: Number(total?.n ?? 0),
+    toReview: rows.length,
     groups: result,
     suggestions: SUGGESTED_CATEGORIES.filter((c) => suggestionCounts.has(c.name)).map((c) => ({ ...c, ...suggestionCounts.get(c.name)! })),
   };
 }
 
-/** Crée les catégories proposées retenues par l'utilisateur. */
+/** Lignes pas encore passées par le classement automatique (nouvelles, ou d'avant ce classement). */
+export async function countUnprocessed(userId: string): Promise<number> {
+  const t = s.transactions;
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(t)
+    .where(and(eq(t.user_id, userId), inArray(t.type, ["in", "out"]), or(isNull(t.category_source), eq(t.category_source, "legacy"))));
+  return Number(row?.n ?? 0);
+}
+
+/** Nombre de lignes à vérifier (bandeaux d'invitation). */
+export async function countToReview(userId: string): Promise<number> {
+  const t = s.transactions;
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(t)
+    .where(and(eq(t.user_id, userId), inArray(t.type, ["in", "out"]), ne(t.category_source, "manual"), lt(t.category_confidence, REVIEW_BELOW)));
+  return Number(row?.n ?? 0);
+}
+
+/** Crée les catégories proposées retenues par l'utilisateur, puis reclasse. */
 export async function createSuggestedCategories(userId: string, names: string[]): Promise<number> {
   const wanted = SUGGESTED_CATEGORIES.filter((c) => names.includes(c.name));
   if (!wanted.length) return 0;
@@ -153,67 +300,56 @@ export async function createSuggestedCategories(userId: string, names: string[])
 }
 
 /**
- * Classe les commerçants choisis : la catégorie est retenue pour le commerçant (apprentissage)
- * et appliquée à toutes ses lignes du même sens. Renvoie le nombre de lignes modifiées.
+ * Validation d'un commerçant (lignes à vérifier) : la catégorie est retenue pour lui
+ * (apprentissage) et appliquée à toutes ses lignes automatiques du même sens, qui passent en
+ * « manuel ». Renvoie le nombre de lignes modifiées.
  */
-export async function applyMerchantCategories(userId: string, items: { merchantKey: string; direction: Direction; categoryId: string }[]): Promise<number> {
+export async function validateMerchants(userId: string, items: { merchantKey: string; direction: Direction; categoryId: string }[]): Promise<number> {
   if (!items.length) return 0;
-  const { active, rows } = await loadContext(userId);
-  const valid = new Map(active.map((c) => [c.id, c]));
-  const byGroup = new Map<string, string>();
-  for (const it of items) {
-    const cat = valid.get(it.categoryId);
-    if (!cat) continue;
-    byGroup.set(`${it.direction}:${it.merchantKey}`, cat.id);
-  }
+  const categories = await db.select({ id: s.categories.id }).from(s.categories).where(eq(s.categories.user_id, userId));
+  const valid = new Set(categories.map((c) => c.id));
+  const byGroup = new Map(items.filter((i) => valid.has(i.categoryId)).map((i) => [`${i.direction}:${i.merchantKey}`, i.categoryId]));
+  const rows = await automaticRows(userId);
   const toUpdate = new Map<string, string[]>();
-  for (const t of rows) {
-    const id = `${Number(t.amount) < 0 ? "out" : "in"}:${merchantKey(t.place) || "(sans libellé)"}`;
-    const categoryId = byGroup.get(id);
-    if (!categoryId || t.categoryId === categoryId) continue;
-    toUpdate.set(categoryId, [...(toUpdate.get(categoryId) ?? []), t.id]);
+  for (const r of rows) {
+    const categoryId = byGroup.get(`${Number(r.amount) < 0 ? "out" : "in"}:${merchantKey(r.place) || "(sans libellé)"}`);
+    if (!categoryId) continue;
+    toUpdate.set(categoryId, [...(toUpdate.get(categoryId) ?? []), r.id]);
   }
   let changed = 0;
+  const t = s.transactions;
   await db.transaction(async (tx) => {
     for (const [categoryId, ids] of toUpdate) {
       for (let i = 0; i < ids.length; i += 500) {
         const done = await tx
-          .update(s.transactions)
-          .set({ category_id: categoryId })
-          .where(and(eq(s.transactions.user_id, userId), inArray(s.transactions.id, ids.slice(i, i + 500))))
-          .returning({ id: s.transactions.id });
+          .update(t)
+          .set({ category_id: categoryId, category_source: "manual", category_confidence: CONFIDENCE.manual })
+          .where(and(eq(t.user_id, userId), inArray(t.id, ids.slice(i, i + 500))))
+          .returning({ id: t.id });
         changed += done.length;
       }
     }
     const r = s.merchantRules;
-    for (const it of items) {
-      const categoryId = byGroup.get(`${it.direction}:${it.merchantKey}`);
-      if (!categoryId || it.merchantKey === "(sans libellé)") continue;
+    for (const [group, categoryId] of byGroup) {
+      const key = group.slice(group.indexOf(":") + 1);
+      if (key === "(sans libellé)") continue;
       await tx
         .insert(r)
-        .values({ user_id: userId, merchant_key: it.merchantKey, category_id: categoryId })
+        .values({ user_id: userId, merchant_key: key, category_id: categoryId })
         .onConflictDoUpdate({ target: [r.user_id, r.merchant_key], set: { category_id: categoryId, updated_at: new Date() } });
     }
   });
   return changed;
 }
 
-/** Nombre de lignes encore dans « Autres » ou sans catégorie (bandeau d'invitation). */
-export async function countUncategorized(userId: string): Promise<number> {
-  const autres = await db
-    .select({ id: s.categories.id })
-    .from(s.categories)
-    .where(and(eq(s.categories.user_id, userId), sql`lower(${s.categories.name}) = 'autres'`));
+/** Une ligne précise : catégorie confirmée telle quelle (elle n'est plus à vérifier). */
+export async function confirmTransactionCategory(userId: string, transactionId: string): Promise<boolean> {
   const t = s.transactions;
   const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(t)
-    .where(
-      and(
-        eq(t.user_id, userId),
-        inArray(t.type, ["in", "out"]),
-        autres[0] ? or(isNull(t.category_id), eq(t.category_id, autres[0].id)) : isNull(t.category_id),
-      ),
-    );
-  return Number(row?.n ?? 0);
+    .update(t)
+    .set({ category_source: "manual", category_confidence: CONFIDENCE.manual })
+    .where(and(eq(t.id, transactionId), eq(t.user_id, userId), inArray(t.type, ["in", "out"])))
+    .returning({ place: t.place, categoryId: t.category_id });
+  if (row?.categoryId) await learnMerchant(userId, row.place, row.categoryId);
+  return !!row;
 }

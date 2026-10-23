@@ -195,6 +195,9 @@ export const transactions = pgTable("transactions", {
   bank_ref: text("bank_ref"),
   /** Compte en face (IBAN ou numéro) : compte créditeur d'un débit, donneur d'ordre d'un crédit */
   bank_counterparty: text("bank_counterparty"),
+  /** Origine de la catégorie (manual, learned, rule, directory…) et score de confiance (0 à 100) */
+  category_source: text("category_source"),
+  category_confidence: smallint("category_confidence"),
   created_at: ts("created_at").notNull().defaultNow(),
 });
 
@@ -287,6 +290,16 @@ export const merchantRules = pgTable("merchant_rules", {
   category_id: uuid("category_id").notNull(),
   created_at: ts("created_at").notNull().defaultNow(),
   updated_at: ts("updated_at").notNull().defaultNow(),
+});
+
+/** Cache de l'annuaire des entreprises (SIRENE) par commerçant + département. */
+export const merchantDirectory = pgTable("merchant_directory", {
+  lookup_key: text("lookup_key").primaryKey(),
+  name: text("name"),
+  commune: text("commune"),
+  naf: text("naf"),
+  score: smallint("score").notNull().default(0),
+  looked_up_at: ts("looked_up_at").notNull().defaultNow(),
 });
 
 /** Abonnement aux notifications push d'un appareil (Web Push). */

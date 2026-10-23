@@ -3,6 +3,9 @@ import { getSession } from "@/lib/data/queries";
 import { BackLink, PageHeader } from "@/components/ui/primitives";
 import { BankSettings } from "./bank-settings";
 
+// le classement automatique (recherches dans l'annuaire des entreprises) tourne après la réponse
+export const maxDuration = 60;
+
 export const metadata = { title: "Banque" };
 
 export default async function BankSettingsPage({ searchParams }: { searchParams: Promise<{ connecte?: string; erreur?: string }> }) {

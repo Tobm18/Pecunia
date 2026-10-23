@@ -1,11 +1,16 @@
 import Link from "next/link";
-import { getAppData, getTransactions } from "@/lib/data/queries";
+import { after } from "next/server";
+import { autoCategorize, countUnprocessed } from "@/lib/data/categorize";
+import { getAppData, getSession, getTransactions } from "@/lib/data/queries";
 import { resolveMonth } from "@/lib/data/views";
 import { isValidIsoDate, longDayMonth, monthPeriod, todayIso } from "@/lib/domain/dates";
 import { MonthSwitcher } from "@/components/app/filters";
 import { buttonClass } from "@/components/ui/primitives";
 import { PeriodPicker, type PeriodMode } from "./period-picker";
 import { TransactionsView } from "./transactions-view";
+
+// le classement automatique (recherches dans l'annuaire des entreprises) tourne après la réponse
+export const maxDuration = 60;
 
 export const metadata = { title: "Transactions" };
 
@@ -34,7 +39,9 @@ export default async function TransactionsPage({
   else if (mode === "dates") range = { from: isValidIsoDate(params.du) ? params.du : undefined, to: isValidIsoDate(params.au) ? params.au : undefined };
   else range = { from: monthPeriod(month, profile.monthStartDay).start, to: monthPeriod(month, profile.monthStartDay).end };
 
-  const txs = await getTransactions(range);
+  const [txs, { user }] = await Promise.all([getTransactions(range), getSession()]);
+  // lignes pas encore classées automatiquement (nouvelles, ou d'avant ce classement) : il tourne après l'affichage
+  if ((await countUnprocessed(user.id)) > 0) after(() => autoCategorize(user.id).catch(() => undefined));
   const initialAccount = accounts.some((a) => a.id === params.compte) ? params.compte! : null;
   const rangeLabel =
     mode === "dates"
@@ -56,7 +63,7 @@ export default async function TransactionsPage({
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/categories/classer" className={buttonClass("secondary")}>
-            Classer par commerçant
+            À vérifier
           </Link>
           <Link href={initialAccount ? `/import?compte=${initialAccount}` : "/import"} className={buttonClass("secondary")}>
             Importer un CSV

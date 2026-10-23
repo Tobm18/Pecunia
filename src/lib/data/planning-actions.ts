@@ -158,7 +158,10 @@ export async function setOccurrenceDone(recurrenceId: string, date: string, done
             { ...base, type: "transfer", account_id: r.toAccountId!, counterpart_account_id: r.accountId, amount_cents: r.amountCents, transfer_id: transferId, category_id: null },
           ];
         })()
-      : [{ ...base, type: r.type, account_id: r.accountId, amount_cents: signedRecurrenceCents(r), category_id: r.categoryId }];
+      : [
+          // catégorie de la récurrence, choisie par l'utilisateur : jamais reclassée
+          { ...base, type: r.type, account_id: r.accountId, amount_cents: signedRecurrenceCents(r), category_id: r.categoryId, category_source: "manual", category_confidence: 100 },
+        ];
   if (!(await attempt(() => db.insert(t).values(rows)))) return fail(GENERIC_ERROR);
   refresh();
   return ok(undefined);

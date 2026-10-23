@@ -2,6 +2,7 @@ import { clsx } from "clsx";
 import { IconBadge } from "@/components/ui/icons";
 import { Amount } from "@/components/ui/money";
 import { shortAccountName } from "@/lib/domain/accounts";
+import { needsReview } from "@/lib/domain/categorize";
 import type { Account, Category, Transaction } from "@/lib/domain/types";
 
 const TYPE_TAG: Partial<Record<Transaction["type"], string>> = {
@@ -42,6 +43,7 @@ export function TransactionRow({
   const categoryLabel = isTransfer ? "Virement interne · hors budget" : tx.type === "adjust" ? "Régularisation" : category?.name;
   const sub = [showAccount ? accountLabel : null, categoryLabel, tx.note].filter(Boolean).join(" · ");
   const tag = TYPE_TAG[tx.type];
+  const review = needsReview(tx.categorySource, tx.categoryConfidence);
 
   return (
     <button
@@ -55,6 +57,11 @@ export function TransactionRow({
           <span className="truncate">{tx.place || (isTransfer ? "Virement" : "Sans libellé")}</span>
           {tag && tx.type !== "adjust" && (
             <span className="rounded-full bg-accent-100 px-2 py-0.5 text-[10px] font-bold text-accent-700">{tag}</span>
+          )}
+          {review && (
+            <span className="shrink-0 rounded-full bg-warn-100 px-2 py-0.5 text-[10px] font-bold text-warn-800" title={`Confiance ${tx.categoryConfidence ?? 0} %`}>
+              À vérifier
+            </span>
           )}
         </p>
         <p className="truncate text-xs text-n-600">{sub}</p>

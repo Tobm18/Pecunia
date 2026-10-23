@@ -2,12 +2,14 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { deleteTransaction, updateTransaction } from "@/lib/data/actions";
+import { confirmCategory } from "@/lib/data/categorize-actions";
+import { needsReview, SOURCE_LABELS, type CategorySource } from "@/lib/domain/categorize";
 import { centsToInput, parseAmountToCents, sanitizeAmountInput } from "@/lib/domain/money";
 import { needsNature, type EntryInput, type EntryKind } from "@/lib/domain/entries";
 import type { Transaction } from "@/lib/domain/types";
 import { useAppData } from "@/components/app/app-data";
 import { Modal, useToast } from "@/components/ui/overlay";
-import { Button, FieldError, Input, Label, Segmented, Select } from "@/components/ui/primitives";
+import { Banner, Button, FieldError, Input, Label, Segmented, Select } from "@/components/ui/primitives";
 
 /** Reconstruit le formulaire à partir d'une ligne (pour un virement : depuis la ligne source). */
 function toInput(tx: Transaction, all: Transaction[]): EntryInput {
@@ -71,6 +73,8 @@ export function EditTransactionModal({
       .filter((a): a is NonNullable<typeof a> => !!a && !!a.archivedAt),
   ];
   const categories = activeCategories.filter((c) => form.kind === "in" || !c.isIncome);
+  const automatic = (tx.type === "out" || tx.type === "in") && !!tx.categorySource && tx.categorySource !== "manual";
+  const review = automatic && needsReview(tx.categorySource, tx.categoryConfidence);
 
   function save() {
     setError(null);
@@ -80,6 +84,20 @@ export function EditTransactionModal({
       startTransition(() => {
         if (!result.ok) return setError(result.error);
         toast("Transaction modifiée");
+        onClose();
+      });
+    });
+  }
+
+  /** Catégorie automatique confirmée telle quelle : la ligne n'est plus à vérifier. */
+  function confirm() {
+    setError(null);
+    setAction("save");
+    startTransition(async () => {
+      const result = await confirmCategory(tx!.id);
+      startTransition(() => {
+        if (!result.ok) return setError(result.error);
+        toast("Catégorie confirmée");
         onClose();
       });
     });
@@ -190,6 +208,21 @@ export function EditTransactionModal({
               </div>
             )}
           </div>
+          {automatic && (
+            <Banner
+              tone={review ? "warn" : "info"}
+              action={
+                review && form.categoryId === tx.categoryId ? (
+                  <button type="button" onClick={confirm} disabled={pending} className="shrink-0 font-bold">
+                    Confirmer
+                  </button>
+                ) : undefined
+              }
+            >
+              {review ? "À vérifier · " : ""}Classée automatiquement ({SOURCE_LABELS[tx.categorySource as CategorySource] ?? "automatique"}), confiance{" "}
+              {tx.categoryConfidence ?? 0} %. Ton choix vaudra pour toutes les lignes de ce commerçant.
+            </Banner>
+          )}
           {needsNature(form.kind, form.accountId ? accountById.get(form.accountId) : undefined) && (
             <Segmented
               value={form.nature}

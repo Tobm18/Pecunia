@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { autoCategorize } from "./categorize";
 import { z } from "zod";
 import { BankApiError, startAuthorization } from "@/lib/bank/enable-banking";
 import { isValidIsoDate, todayIso } from "@/lib/domain/dates";
@@ -60,6 +62,8 @@ export async function syncBank(): Promise<ActionResult<{ inserted: number; accou
   const overview = await getBankOverview(user.id);
   if (!overview.connection) return fail("Aucune banque connectée.");
   const result = await syncConnection(user.id, overview.connection.id);
+  // classement automatique des nouvelles lignes (annuaire des entreprises compris), après la réponse
+  if (result.ok) after(() => autoCategorize(user.id).catch(() => undefined));
   refresh();
   return result.ok ? ok(result.summary) : fail(result.error);
 }

@@ -1,12 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema as s } from "@/lib/db";
 import { dedupeKey, type ExistingLine, type ImportItem } from "@/lib/domain/csv-import";
 import { isValidIsoDate } from "@/lib/domain/dates";
 import type { Transaction } from "@/lib/domain/types";
+import { autoCategorize } from "./categorize";
 import { getAccounts, getCategories, getSession, getTransactions } from "./queries";
 import { toTransaction, transactionToRow } from "./mappers";
 
@@ -24,6 +26,7 @@ const itemSchema = z.discriminatedUnion("kind", [
     categoryId: uuid.nullable(),
     amountCents: cents,
     note: text.nullable(),
+    categoryManual: z.boolean().optional(),
   }),
   z.object({
     kind: z.literal("transfer"),
@@ -69,6 +72,8 @@ function rowsFor(item: ImportItem, transferId: string): NewRow[] {
       note,
       counterpartAccountId: null,
       transferId: null,
+      // catégorie changée à la main dans l'aperçu : manuelle ; sinon devinée, reprise par le classement automatique
+      categorySource: item.kind !== "interest" && item.categoryManual ? "manual" : null,
     },
   ];
 }
@@ -214,6 +219,8 @@ export async function importTransactions(input: ImportPayload): Promise<ImportRe
     return { ok: false, error: "Import impossible, réessaie dans un instant. Aucune ligne n'a été enregistrée." };
   }
 
+  // classement automatique des lignes importées (annuaire des entreprises compris), après la réponse
+  after(() => autoCategorize(user.id).catch(() => undefined));
   revalidatePath("/", "layout");
   return { ok: true, inserted: items.length - skipped, skipped, linked: converted, balancesUpdated };
 }

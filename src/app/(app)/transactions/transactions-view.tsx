@@ -8,6 +8,7 @@ import { Amount } from "@/components/ui/money";
 import { dayLabel } from "@/lib/domain/dates";
 import { formatCents } from "@/lib/domain/money";
 import { shortAccountName } from "@/lib/domain/accounts";
+import { needsReview } from "@/lib/domain/categorize";
 import { groupByDay, signedTotal } from "@/lib/domain/stats";
 import type { Transaction } from "@/lib/domain/types";
 import { TransactionRow } from "@/components/transactions/transaction-row";
@@ -26,6 +27,7 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
   const [accountId, setAccountId] = useState<string | null>(initialAccount);
   const [type, setType] = useState<TypeFilter>("all");
   const [categoryId, setCategoryId] = useState<string>("");
+  const [reviewOnly, setReviewOnly] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
 
   const filtered = useMemo(() => {
@@ -37,15 +39,17 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
       if (type === "in" && t.type !== "in" && t.type !== "interest") return false;
       if (type === "transfer" && t.type !== "transfer") return false;
       if (categoryId && t.categoryId !== categoryId) return false;
+      if (reviewOnly && !needsReview(t.categorySource, t.categoryConfidence)) return false;
       if (q && !`${t.place ?? ""} ${t.note ?? ""}`.toLocaleLowerCase("fr-FR").includes(q)) return false;
       return true;
     });
-  }, [transactions, search, accountId, type, categoryId]);
+  }, [transactions, search, accountId, type, categoryId, reviewOnly]);
+  const reviewCount = useMemo(() => transactions.filter((t) => needsReview(t.categorySource, t.categoryConfidence)).length, [transactions]);
 
   const total = signedTotal(filtered, accountId);
   // rendu par paquets : une longue période (tout l'historique) reste fluide ; le total porte sur tout
   const [shown, setShown] = useState(PAGE);
-  const filterKey = `${search}|${accountId}|${type}|${categoryId}`;
+  const filterKey = `${search}|${accountId}|${type}|${categoryId}|${reviewOnly}`;
   const [lastFilterKey, setLastFilterKey] = useState(filterKey);
   if (filterKey !== lastFilterKey) {
     setLastFilterKey(filterKey);
@@ -77,6 +81,13 @@ export function TransactionsView({ transactions, initialAccount }: { transaction
             ))}
           </Select>
         </div>
+        {reviewCount > 0 && (
+          <div className="self-start">
+            <Chip active={reviewOnly} onClick={() => setReviewOnly((v) => !v)}>
+              À vérifier ({reviewCount})
+            </Chip>
+          </div>
+        )}
         <Segmented
           value={type}
           onChange={setType}

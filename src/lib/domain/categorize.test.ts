@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { category } from "./__fixtures__";
 import { DEFAULT_CATEGORIES } from "./defaults";
-import { CATEGORY_RULES, merchantKey, merchantRoot, ruleCategoryNames, SUGGESTED_CATEGORIES } from "./categorize";
+import { CATEGORY_RULES, directoryMatchScore, merchantKey, merchantPlace, merchantRoot, nafCategoryName, needsReview, ruleCategoryNames, SUGGESTED_CATEGORIES } from "./categorize";
 import { createCategorizer } from "./csv-import";
 
 describe("merchantKey", () => {
@@ -85,5 +85,50 @@ describe("apprentissage", () => {
     const c = createCategorizer(categories, []);
     expect(c.categoryFor("XYZ INCONNU", "out")).toBe("Autres");
     expect(c.confidentCategoryFor("XYZ INCONNU", "out")).toBeNull();
+  });
+});
+
+describe("annuaire des entreprises", () => {
+  it("code NAF → catégorie", () => {
+    expect(nafCategoryName("56.29B")).toBe("Restaurants");
+    expect(nafCategoryName("47.11F")).toBe("Courses");
+    expect(nafCategoryName("47.73Z")).toBe("Santé");
+    expect(nafCategoryName("47.30Z")).toBe("Transport");
+    expect(nafCategoryName("93.29Z")).toBe("Loisirs");
+    expect(nafCategoryName("96.02A")).toBeNull();
+  });
+
+  it("commerçant d'un paiement carte : nom, département, ville", () => {
+    expect(merchantPlace("260326 CB****3007 GARIG 06CAGNES SUR ME")).toEqual({ name: "garig", department: "06", city: "cagnes sur me" });
+    expect(merchantPlace("GARIG 06CAGNES SUR ME 260326 CB****3007")).toEqual({ name: "garig", department: "06", city: "cagnes sur me" });
+    expect(merchantPlace("NEW PADDOCK FR GRASSE 121225 CB****1798-60,80EUR 1 EURO = 1,")).toEqual({ name: "new paddock", department: null, city: "grasse" });
+    expect(merchantPlace("PRLV SEPA PayPal Europe 1053685047143/PAYPAL")).toBeNull();
+  });
+
+  it("qualité de la correspondance", () => {
+    const place = { name: "garig", city: "cagnes sur me" };
+    expect(directoryMatchScore(place, { names: ["GARIG"], communes: ["CAGNES-SUR-MER", "NICE"] })).toBe(90);
+    // homonyme ailleurs : sous le seuil, à vérifier
+    expect(directoryMatchScore(place, { names: ["GARIG"], communes: ["LYON"] })).toBeLessThan(70);
+    expect(directoryMatchScore({ ...place, department: "06" }, { names: ["CONCORDE"], communes: ["VALLAURIS"] })).toBe(0);
+    expect(directoryMatchScore({ name: "concorde", city: "cagnes sur me", department: "06" }, { names: ["CONCORDE"], communes: ["VALLAURIS"] })).toBeLessThan(70);
+    expect(directoryMatchScore({ name: "la petite sourc", city: "mandelieu la" }, { names: ["LA SOURCE"], communes: ["MANDELIEU LA NAPOULE"] })).toBeLessThan(80);
+    expect(directoryMatchScore(place, { names: ["BOULANGERIE MARTIN"], communes: ["CAGNES-SUR-MER"] })).toBe(0);
+  });
+
+  it("le catégoriseur s'en sert, avec le score de la correspondance", () => {
+    const cats = DEFAULT_CATEGORIES.map((c, i) => category({ id: c.name, name: c.name, isIncome: !!c.isIncome, sortOrder: i }));
+    const c = createCategorizer(cats, [], [], new Map([["garig|06", { naf: "56.29B", score: 90 }]]));
+    expect(c.classify("260326 CB****3007 GARIG 06CAGNES SUR ME", "out")).toEqual({ categoryId: "Restaurants", confidence: 90, source: "directory" });
+    expect(c.classify("XYZ INCONNU", "out")).toEqual({ categoryId: "Autres", confidence: 0, source: "fallback" });
+    expect(c.classify("111026 CB****3007 ESCOTA ANTIBES 06MANDELIEU LA", "out")).toMatchObject({ categoryId: "Transport", source: "rule" });
+  });
+
+  it("à vérifier : automatique sous le seuil, jamais une saisie manuelle", () => {
+    expect(needsReview("fallback", 0)).toBe(true);
+    expect(needsReview("directory", 65)).toBe(true);
+    expect(needsReview("rule", 75)).toBe(false);
+    expect(needsReview("manual", 0)).toBe(false);
+    expect(needsReview(null, null)).toBe(false);
   });
 });
