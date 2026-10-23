@@ -5,10 +5,10 @@ import { useMemo, useState, useTransition } from "react";
 import { recategorizeTransactions } from "@/lib/data/categorize-actions";
 import { Modal, useToast } from "@/components/ui/overlay";
 import { useAppData } from "@/components/app/app-data";
-import { Button, Chip, EmptyState, Segmented, Select } from "@/components/ui/primitives";
+import { Button, Chip, EmptyState, Input, Segmented, Select } from "@/components/ui/primitives";
 import { Amount } from "@/components/ui/money";
 import { dayLabel } from "@/lib/domain/dates";
-import { formatCents } from "@/lib/domain/money";
+import { formatCents, parseAmountToCents, sanitizeAmountInput } from "@/lib/domain/money";
 import { shortAccountName } from "@/lib/domain/accounts";
 import { needsReview } from "@/lib/domain/categorize";
 import { groupByDay, signedTotal } from "@/lib/domain/stats";
@@ -39,11 +39,19 @@ export function TransactionsView({
   const [type, setType] = useState<TypeFilter>("all");
   const [categoryId, setCategoryId] = useState<string>(initialCategory ?? "");
   const [reviewOnly, setReviewOnly] = useState(false);
+  // montant minimum / maximum (en euros, valeur absolue : vaut pour les dépenses comme les entrées)
+  const [minAmount, setMinAmount] = useState("");
+  const [maxAmount, setMaxAmount] = useState("");
   const [editing, setEditing] = useState<Transaction | null>(null);
+  const minCents = minAmount ? parseAmountToCents(minAmount) : null;
+  const maxCents = maxAmount ? parseAmountToCents(maxAmount) : null;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLocaleLowerCase("fr-FR");
     return transactions.filter((t) => {
+      const abs = Math.abs(t.amountCents);
+      if (minCents !== null && abs < minCents) return false;
+      if (maxCents !== null && abs > maxCents) return false;
       // En vue « tous comptes », un virement n'apparaît qu'une fois (ligne source)
       if (accountId ? t.accountId !== accountId : t.type === "transfer" && t.amountCents > 0) return false;
       if (type === "out" && t.type !== "out") return false;
@@ -54,12 +62,12 @@ export function TransactionsView({
       if (q && !`${t.place ?? ""} ${t.note ?? ""}`.toLocaleLowerCase("fr-FR").includes(q)) return false;
       return true;
     });
-  }, [transactions, search, accountId, type, categoryId, reviewOnly]);
+  }, [transactions, search, accountId, type, categoryId, reviewOnly, minCents, maxCents]);
   const reviewCount = useMemo(() => transactions.filter((t) => needsReview(t.categorySource, t.categoryConfidence)).length, [transactions]);
 
   const total = signedTotal(filtered, accountId);
   // reclassement en masse : les dépenses / recettes affichées quand un filtre est actif
-  const filtering = !!search.trim() || !!categoryId || reviewOnly;
+  const filtering = !!search.trim() || !!categoryId || reviewOnly || minCents !== null || maxCents !== null;
   const bulkTargets = filtering ? filtered.filter((t) => (t.type === "out" || t.type === "in") && t.categorySource !== "rent" && !t.splitOf) : [];
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkCategory, setBulkCategory] = useState("");
@@ -82,7 +90,7 @@ export function TransactionsView({
   }
   // rendu par paquets : une longue période (tout l'historique) reste fluide ; le total porte sur tout
   const [shown, setShown] = useState(PAGE);
-  const filterKey = `${search}|${accountId}|${type}|${categoryId}|${reviewOnly}`;
+  const filterKey = `${search}|${accountId}|${type}|${categoryId}|${reviewOnly}|${minCents}|${maxCents}`;
   const [lastFilterKey, setLastFilterKey] = useState(filterKey);
   if (filterKey !== lastFilterKey) {
     setLastFilterKey(filterKey);
@@ -113,6 +121,39 @@ export function TransactionsView({
               </option>
             ))}
           </Select>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-semibold text-n-700">Montant</span>
+          <Input
+            inputMode="decimal"
+            value={minAmount}
+            onChange={(e) => setMinAmount(sanitizeAmountInput(e.target.value))}
+            placeholder="min"
+            aria-label="Montant minimum, en euros"
+            className="w-24 text-right tabular-nums"
+          />
+          <span className="text-n-600">à</span>
+          <Input
+            inputMode="decimal"
+            value={maxAmount}
+            onChange={(e) => setMaxAmount(sanitizeAmountInput(e.target.value))}
+            placeholder="max"
+            aria-label="Montant maximum, en euros"
+            className="w-24 text-right tabular-nums"
+          />
+          <span className="text-n-600">€</span>
+          {(minAmount || maxAmount) && (
+            <button
+              type="button"
+              onClick={() => {
+                setMinAmount("");
+                setMaxAmount("");
+              }}
+              className="text-xs font-semibold text-accent-700 hover:underline"
+            >
+              Effacer
+            </button>
+          )}
         </div>
         {reviewCount > 0 && (
           <div className="self-start">
