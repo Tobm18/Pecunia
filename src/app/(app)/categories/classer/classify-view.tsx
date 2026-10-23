@@ -1,9 +1,11 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { createCategoriesFromSuggestions, validateMerchantCategories } from "@/lib/data/categorize-actions";
 import type { ReviewGroup, ReviewOverview } from "@/lib/data/categorize";
-import { shortDate } from "@/lib/domain/dates";
+import { numericDate, shortDate } from "@/lib/domain/dates";
+import { useAppData } from "@/components/app/app-data";
 import { formatCents, formatPercent } from "@/lib/domain/money";
 import type { Category } from "@/lib/domain/types";
 import { IconBadge } from "@/components/ui/icons";
@@ -25,6 +27,9 @@ export function ClassifyView({ overview, unprocessed, categories }: { overview: 
   const [shown, setShown] = useState(PAGE);
   const [picked, setPicked] = useState<Set<string>>(() => new Set(overview.suggestions.map((s) => s.name)));
   const [choices, setChoices] = useState<Record<string, string>>({});
+  // commerçant dont les opérations sont dépliées
+  const [open, setOpen] = useState<string | null>(null);
+  const { accountById } = useAppData();
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
   const share = overview.total ? overview.toReview / overview.total : 0;
   const choiceOf = (g: ReviewGroup) => choices[g.id] ?? g.categoryId ?? "";
@@ -123,6 +128,15 @@ export function ClassifyView({ overview, unprocessed, categories }: { overview: 
                       {current ? current.name : "Sans catégorie"} · confiance {g.confidence} % ({g.sourceLabel})
                       {g.suggestedName && ` · irait dans « ${g.suggestedName} »`}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => setOpen((prev) => (prev === g.id ? null : g.id))}
+                      aria-expanded={open === g.id}
+                      className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-accent-700 hover:underline"
+                    >
+                      <ChevronDown size={13} className={open === g.id ? "rotate-180 transition-transform" : "transition-transform"} />
+                      {open === g.id ? "Masquer les opérations" : `Voir ${g.count > 1 ? `les ${g.count} opérations` : "l'opération"}`}
+                    </button>
                   </div>
                   <Select
                     value={choice}
@@ -140,6 +154,24 @@ export function ClassifyView({ overview, unprocessed, categories }: { overview: 
                   <Button variant={choice && choice !== g.categoryId ? "primary" : "secondary"} onClick={() => validate(g)} disabled={pending || !choice}>
                     Valider
                   </Button>
+                  {open === g.id && (
+                    <ul className="w-full overflow-hidden rounded-xl bg-n-100 text-xs">
+                      {g.lines.map((l, i) => (
+                        <li key={i} className="flex items-start gap-3 border-b border-divider px-3 py-2 last:border-b-0">
+                          <span className="w-20 shrink-0 tabular-nums text-n-600">{numericDate(l.date)}</span>
+                          <span className="min-w-0 flex-1 wrap-break-word">
+                            {l.label}
+                            <span className="block text-n-600">
+                              {accountById.get(l.accountId)?.name ?? ""}
+                              {l.note ? ` · ${l.note}` : ""}
+                            </span>
+                          </span>
+                          <span className={`shrink-0 font-semibold tabular-nums ${l.cents > 0 ? "text-accent-700" : ""}`}>{formatCents(l.cents, "always")}</span>
+                        </li>
+                      ))}
+                      {g.count > g.lines.length && <li className="px-3 py-2 text-n-600">… et {g.count - g.lines.length} plus anciennes</li>}
+                    </ul>
+                  )}
                 </li>
               );
             })}

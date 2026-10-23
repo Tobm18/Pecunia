@@ -181,7 +181,12 @@ export interface ReviewGroup {
   /** Catégorie à créer qui conviendrait, quand aucune existante ne convient */
   suggestedName: string | null;
   lastDate: string;
+  /** Opérations du groupe, les plus récentes d'abord (au plus REVIEW_LINES), pour s'en souvenir */
+  lines: { date: string; label: string; cents: number; accountId: string; note: string | null }[];
 }
+
+/** Opérations détaillées par commerçant à vérifier */
+const REVIEW_LINES = 30;
 
 export interface ReviewOverview {
   total: number;
@@ -197,7 +202,16 @@ export async function getReviewOverview(userId: string): Promise<ReviewOverview>
   const [categories, rows, [total]] = await Promise.all([
     db.select().from(s.categories).where(eq(s.categories.user_id, userId)),
     db
-      .select({ place: t.place, amount: t.amount_cents, date: t.date, categoryId: t.category_id, source: t.category_source, confidence: t.category_confidence })
+      .select({
+        place: t.place,
+        amount: t.amount_cents,
+        date: t.date,
+        accountId: t.account_id,
+        note: t.note,
+        categoryId: t.category_id,
+        source: t.category_source,
+        confidence: t.category_confidence,
+      })
       .from(t)
       .where(and(eq(t.user_id, userId), inArray(t.type, ["in", "out"]), ne(t.category_source, "manual"), lt(t.category_confidence, REVIEW_BELOW)))
       .orderBy(desc(t.date)),
@@ -227,6 +241,7 @@ export async function getReviewOverview(userId: string): Promise<ReviewOverview>
         sourceLabel: SOURCE_LABELS[(r.source as CategorySource) ?? "fallback"] ?? "",
         suggestedName: null,
         lastDate: r.date,
+        lines: [],
         tally: new Map(),
       };
       groups.set(id, g);
@@ -234,6 +249,10 @@ export async function getReviewOverview(userId: string): Promise<ReviewOverview>
     g.count++;
     g.totalCents += Number(r.amount);
     g.confidence = Math.min(g.confidence, r.confidence ?? 0);
+    // lignes triées par date décroissante : les premières vues sont les plus récentes
+    if (g.lines.length < REVIEW_LINES) {
+      g.lines.push({ date: r.date, label: r.place ?? "Sans libellé", cents: Number(r.amount), accountId: r.accountId, note: r.note });
+    }
     if (r.categoryId) g.tally.set(r.categoryId, (g.tally.get(r.categoryId) ?? 0) + 1);
   }
 
