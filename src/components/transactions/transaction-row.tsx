@@ -41,9 +41,12 @@ export function TransactionRow({
         ? shortAccountName(account)
         : "";
   const categoryLabel = isTransfer ? "Virement interne · hors budget" : tx.type === "adjust" ? "Régularisation" : category?.name;
-  const sub = [showAccount ? accountLabel : null, categoryLabel, tx.note].filter(Boolean).join(" · ");
   const tag = TYPE_TAG[tx.type];
   const review = needsReview(tx.categorySource, tx.categoryConfidence);
+  // catégorie devinée automatiquement : son score de confiance suit son nom
+  const automatic = (tx.type === "out" || tx.type === "in") && !!tx.categorySource && tx.categorySource !== "manual";
+  const categoryText = automatic && categoryLabel ? `${categoryLabel} (auto ${tx.categoryConfidence ?? 0} %)` : categoryLabel;
+  const sub = [showAccount ? accountLabel : null, categoryText, tx.note].filter(Boolean).join(" · ");
 
   return (
     <button
