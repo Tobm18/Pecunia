@@ -84,6 +84,9 @@ export async function applyRentRules(userId: string): Promise<number> {
 
   let touched = 0;
   await db.transaction(async (tx) => {
+    // un seul passage à la fois par utilisateur : deux passages simultanés recolleraient et
+    // redécouperaient les mêmes virements l'un sur l'autre (parts perdues ou dupliquées)
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`rent:${userId}`}, 0))`);
     await restoreSplits(userId, tx);
     if (!rules.length) return;
     const rows = (
@@ -121,7 +124,11 @@ export async function applyRentRules(userId: string): Promise<number> {
             .where(eq(t.id, line.id));
           continue;
         }
-        await tx.update(t).set({ amount_cents: amount + part }).where(eq(t.id, line.id));
+        // modification relative : jamais de montant réécrit à partir d'une lecture
+        await tx
+          .update(t)
+          .set({ amount_cents: sql`${t.amount_cents} + ${part}` })
+          .where(eq(t.id, line.id));
         await tx.insert(t).values({
           user_id: userId,
           account_id: line.accountId,

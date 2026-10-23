@@ -29,6 +29,19 @@ describe("allocateRent", () => {
     });
   });
 
+  it("rattrapage de plusieurs mois ; les petits virements ne comptent pas", () => {
+    const luc = [
+      { id: "mar", date: "2025-03-26", cents: 35000 },
+      { id: "apr-small", date: "2025-04-01", cents: 364 },
+      { id: "may", date: "2025-05-26", cents: 35000 },
+      { id: "jun", date: "2025-06-26", cents: 35000 },
+      { id: "jul-small", date: "2025-07-01", cents: 364 },
+      { id: "jul", date: "2025-07-29", cents: 60000 },
+    ];
+    // juillet : 350 pour juillet, le reste (250) rattrape avril, impayé
+    expect(Object.fromEntries(allocateRent(luc, [since("2024-12-01", "monthly", 35000)]))).toEqual({ mar: 35000, may: 35000, jun: 35000, jul: 60000 });
+  });
+
   it("rattrapage : un gros virement complète le loyer incomplet du mois précédent", () => {
     const winter = [
       { id: "jan", date: "2026-01-27", cents: 17000 },
@@ -78,7 +91,8 @@ describe("allocateRent", () => {
 
   it("période à 0 : plus de loyer (déménagement) ; avant la première période : rien", () => {
     const parts = allocateRent(lines, [since("2026-09-10", "monthly", 45000), since("2026-10-01", "monthly", 0)]);
-    expect(Object.fromEntries(parts)).toEqual({ b: 25000, c: 10000 });
+    // c (100 €) fait moins d'un quart de 450 € : un petit virement ne complète pas le mois
+    expect(Object.fromEntries(parts)).toEqual({ b: 25000 });
   });
 
   it("changement de mode d'une période à l'autre", () => {

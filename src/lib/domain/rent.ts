@@ -47,6 +47,9 @@ export function matchesRecipient(ruleKey: string, lineKey: string): boolean {
   return a.startsWith(b) || b.startsWith(a);
 }
 
+/** Mois en arrière qu'un virement peut rattraper (mois impayés) */
+export const CATCH_UP_MONTHS = 6;
+
 /** Période en vigueur à une date (la dernière commencée), ou null avant la première. */
 export function periodAt(periods: RentPeriod[], date: IsoDate): RentPeriod | null {
   let current: RentPeriod | null = null;
@@ -58,9 +61,10 @@ export function periodAt(periods: RentPeriod[], date: IsoDate): RentPeriod | nul
  * Part loyer de chaque virement (centimes, positive), par id. En pourcentage, chaque virement suit la
  * période en vigueur à sa date. En montant mensuel, le loyer de chaque mois est payé : d'abord par
  * les virements du mois (le montant exact s'il existe, sinon les plus gros) ; puis par l'excédent
- * d'un virement du mois précédent (loyer payé d'avance) ; enfin par celui du mois suivant
- * (rattrapage). Le reste n'est pas du loyer. Un virement sans nom ne compte que s'il fait
- * exactement le loyer de son mois.
+ * d'un virement du mois précédent (payé d'avance) ; enfin par celui d'un virement des mois suivants
+ * (rattrapage, jusqu'à CATCH_UP_MONTHS mois plus tard, le mois impayé le plus ancien d'abord). Le
+ * reste n'est pas compté. Un petit virement (moins d'un quart du montant) ne complète rien, et un
+ * virement sans nom ne compte que s'il fait exactement le montant de son mois.
  */
 export function allocateRent(lines: RentLine[], periods: RentPeriod[]): Map<string, number> {
   const parts = new Map<string, number>();
@@ -103,8 +107,11 @@ export function allocateRent(lines: RentLine[], periods: RentPeriod[]): Map<stri
     due.set(month, due.get(month)! - amount);
   };
 
+  // un petit virement (moins d'un quart du montant mensuel) est autre chose : il ne complète rien
+  const substantial = (l: RentLine) => !l.unnamed && l.cents * 4 >= dueOf(monthOf(l.date));
+
   // 1. chaque mois avec ses propres virements : le montant exact d'abord (nommé de préférence),
-  //    sinon les plus gros virements nommés jusqu'au loyer
+  //    sinon les plus gros virements nommés jusqu'au montant
   const byMonth = new Map<string, RentLine[]>();
   for (const l of sorted) byMonth.set(monthOf(l.date), [...(byMonth.get(monthOf(l.date)) ?? []), l]);
   for (const [month, own] of byMonth) {
@@ -115,12 +122,15 @@ export function allocateRent(lines: RentLine[], periods: RentPeriod[]): Map<stri
       pay(exact, month);
       continue;
     }
-    for (const l of own.filter((x) => !x.unnamed).sort((a, b) => b.cents - a.cents || byDate(a, b))) pay(l, month);
+    for (const l of own.filter(substantial).sort((a, b) => b.cents - a.cents || byDate(a, b))) pay(l, month);
   }
-  // 2. loyer payé d'avance : l'excédent d'un virement couvre le mois suivant encore impayé
-  for (const l of sorted) if (!l.unnamed) pay(l, shift(monthOf(l.date), 1));
-  // 3. rattrapage : l'excédent restant complète le mois précédent
-  for (const l of sorted) if (!l.unnamed) pay(l, shift(monthOf(l.date), -1));
+  // 2. payé d'avance : l'excédent d'un virement couvre le mois suivant encore impayé
+  for (const l of sorted) if (substantial(l)) pay(l, shift(monthOf(l.date), 1));
+  // 3. rattrapage : l'excédent restant couvre les mois impayés des derniers mois, le plus ancien d'abord
+  for (const l of sorted) {
+    if (!substantial(l)) continue;
+    for (let back = CATCH_UP_MONTHS; back >= 1; back--) pay(l, shift(monthOf(l.date), -back));
+  }
   return parts;
 }
 
