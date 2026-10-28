@@ -205,6 +205,34 @@ input[type="checkbox"] {
 .status-bar-fill {
   background: var(--bg);
 }
+
+/* Depuis iOS 27, l'app installée floute le haut de l'écran bien en dessous de l'heure. WebKit y renonce
+   s'il trouve, collée au bord haut, une bande fixe opaque de toute la largeur et de plus de 10 px :
+   la barre d'état prend alors sa couleur (contournement non documenté, à revérifier à chaque iOS).
+   Tous les écrans ont le fond de page en haut : la couleur suit le thème. Pour un écran à en-tête
+   coloré, redéfinir --status-bar-color plutôt que masquer la bande (iOS repasserait au flou). */
+:root {
+  --status-bar-color: var(--bg);
+}
+.status-bar-edge {
+  display: none;
+}
+/* -webkit-touch-callout : iPhone/iPad seulement ; display-mode : app installée seulement */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    .status-bar-edge {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 12px;
+      z-index: 45; /* au-dessus de la bande de barre d'état et de la barre du bas (40), sous les modales (50) */
+      pointer-events: none;
+      background-color: var(--status-bar-color);
+    }
+  }
+}
 [data-theme="dark"] .material-bar {
   box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent), 0 -1px 0 var(--divider);
 }

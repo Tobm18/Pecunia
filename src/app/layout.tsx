@@ -36,6 +36,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="fr" data-theme={theme} className={archivo.variable}>
       <body className="min-h-dvh font-sans">
+        {/* iOS 27, app installée : sans cette bande opaque collée en haut, iOS floute le haut de la page (voir globals.css) */}
+        <div aria-hidden="true" className="status-bar-edge" />
         <Suspense fallback={null}>
           <NavigationProgress />
         </Suspense>
